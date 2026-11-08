@@ -107,6 +107,19 @@ g.clk{cursor:pointer}g.clk:hover rect:not([fill=transparent]),g.clk:focus rect:n
 body.modal-open{overflow:hidden}
 .pill.o-Inbound{background:#212529;color:#fff}.pill.o-Outbound{background:#e7f5ff;color:#1864ab}
 .pill.s9{background:var(--chip-rejected-bg);color:var(--chip-rejected-fg)}.pill.s0{background:#f1f3f5;color:#495057}
+.pill.st-Scheduled{background:#e7f5ff;color:#1864ab}.pill.st-Completed{background:#f1f3f5;color:#495057}.pill.st-Cancelled,.pill.st-No-show{background:#fff5f5;color:#c92a2a}
+.tl{list-style:none;margin:0;padding:0}
+.tl li{display:grid;grid-template-columns:150px 22px 1fr;gap:8px;padding:6px 0;border-bottom:1px solid #f1f3f5;font-size:13px;align-items:start}
+.tl .when{color:#667085;font-variant-numeric:tabular-nums;font-size:12px}
+.tl .ic{text-align:center}
+.tl li.ev{background:#fbfcff}
+.tl .meta{color:#667085;font-size:12px}
+.chain{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:4px 0 10px}
+.chain .ar{color:#adb5bd}
+.rolelink{color:inherit;text-decoration:underline dotted;text-underline-offset:2px}
+.mback{font-size:13px;margin-right:8px}
+.toolbar[hidden]{display:none}
+@media (max-width:640px){.tl li{grid-template-columns:96px 18px 1fr}}
 .pill.oc-Passed{background:#ebfbee;color:#2b8a3e}.pill.oc-Failed{background:#fff5f5;color:#c92a2a}.pill.oc-Pending{background:#fff9db;color:#e67700}.pill.oc-Unknown{background:#f1f3f5;color:#495057}
 @media (max-width:640px){.mbox{padding:12px;max-height:96vh}.modal{padding:2vh 6px}.search{min-width:0;width:100%}}
 @media print{.modal{display:none!important}}
@@ -175,6 +188,15 @@ body.modal-open{overflow:hidden}
     <section class="card"><h2>Interviews</h2><p class="sub">From the interviews table, for applications in the filter. Interviews by type tag (an interview can carry several tags) and by outcome.</p><div id="chInt"></div></section>
   </div>
 
+  <section class="card" id="ivCard">
+    <div class="toolbar" style="justify-content:space-between">
+      <div><h2>Interview schedule</h2>
+      <p class="sub" style="margin:0">Every interview and call logged for roles in the filter, past and upcoming. Times are ET. Click a company to see that role’s full timeline.</p></div>
+      <div class="seg noprint" role="group" aria-label="Interview view"><button type="button" data-iv="">Upcoming</button><button type="button" data-iv="past">Past</button><button type="button" data-iv="all">All</button></div>
+    </div>
+    <div class="tablewrap" id="ivWrap"></div>
+  </section>
+
   <section class="card">
     <h2>Active pipeline</h2>
     <p class="sub">Roles with status Contact with next step, Non-technical screen or Interviewing. Click a header to sort.</p>
@@ -206,7 +228,7 @@ body.modal-open{overflow:hidden}
   <div class="mbox">
     <div class="mhead"><h2 id="mTitle"></h2><button type="button" id="mClose" class="x" aria-label="Close">×</button></div>
     <p class="sub" id="mNote"></p>
-    <div class="toolbar"><input class="search" id="mQ" type="search" placeholder="Search company, title, status…"><span class="muted" id="mShown"></span></div>
+    <div class="toolbar" id="mTools"><input class="search" id="mQ" type="search" placeholder="Search company, title, status…"><span class="muted" id="mShown"></span></div>
     <div class="tablewrap mtable" id="mTable"></div>
   </div>
 </div>
@@ -246,8 +268,9 @@ const pct = (a,b) => b ? (100*a/b).toFixed(a/b < .1 ? 1 : 0) + "%" : "—";
 const todayET = () => new Date().toLocaleDateString("en-CA", {timeZone:"America/New_York"});
 
 let DATA = null;
-const HASH_KEYS = ["df","from","to","src","rf","wp","q","m","fm"];
-const state = {df:"applied", from:"", to:"", src:"", rf:"", wp:"", q:"", m:"", fm:"", sortK:"last_touch_date", sortDir:-1};
+const HASH_KEYS = ["df","from","to","src","rf","wp","q","m","fm","iv"];
+const state = {df:"applied", from:"", to:"", src:"", rf:"", wp:"", q:"", m:"", fm:"", iv:"", sortK:"last_touch_date", sortDir:-1};
+let modalBack = "", modalBack_sort = null;
 const modalSort = {k:null, dir:1, q:""};
 
 /* ---------- fetching (paginated PostgREST) ---------- */
@@ -268,13 +291,15 @@ async function fetchAll(view, select="*", order="") {
 async function load() {
   $("#error").hidden = true; $("#loading").hidden = false; $("#refresh").disabled = true;
   try {
-    const [a, i, s] = await Promise.all([
+    const [a, i, s, ev, mx] = await Promise.all([
       fetchAll("funnel_applications", "*", "id.asc"),
       fetchAll("funnel_interviews", "*", "id.asc"),
-      fetchAll("funnel_status_counts", "*", "sort_order.asc")
+      fetchAll("funnel_status_counts", "*", "sort_order.asc"),
+      fetchAll("funnel_status_events", "id,application_id,from_status,to_status,occurred_at,date_precision,source", "occurred_at.asc,id.asc"),
+      fetchAll("funnel_interactions", "id,application_id,occurred_at,direction,channel,kind,is_partial", "occurred_at.asc,id.asc")
     ]);
     if (a.rows.length !== a.total) throw new Error(`Incomplete load: got ${a.rows.length} of ${a.total} applications`);
-    DATA = {apps: a.rows, ints: i.rows, statusCounts: s.rows, fetchedAt: new Date()};
+    DATA = {apps: a.rows, ints: i.rows, statusCounts: s.rows, events: ev.rows, msgs: mx.rows, fetchedAt: new Date()};
     prepare(); buildFilterOptions(); render();
     $("#app").hidden = false;
     openModalFromState();
@@ -311,10 +336,14 @@ function stageOf(a) {
 function prepare() {
   const byApp = new Map();
   for (const iv of DATA.ints) { if (!byApp.has(iv.application_id)) byApp.set(iv.application_id, []); byApp.get(iv.application_id).push(iv); }
+  const group = rows => { const m = new Map(); for (const x of rows) { if (!m.has(x.application_id)) m.set(x.application_id, []); m.get(x.application_id).push(x); } return m; };
+  const evBy = group(DATA.events || []), mxBy = group(DATA.msgs || []);
   DATA.appById = new Map();
   for (const a of DATA.apps) {
     DATA.appById.set(a.id, a);
     a._ints = byApp.get(a.id) || [];
+    a._events = evBy.get(a.id) || [];
+    a._msgs = mxBy.get(a.id) || [];
     a.title = cleanTitle(a.job_title);
     a._titleIsUrl = /^https?:\/\//i.test((a.job_title || "").trim());
     a._rk = normCompany(a.company) + "|" + normTitle(a.job_title);
@@ -354,6 +383,7 @@ function readHash() {
   for (const k of HASH_KEYS) state[k] = p.get(k) || (k === "df" ? "applied" : "");
   if (!["applied","added"].includes(state.df)) state.df = "applied";
   if (state.fm !== "reached") state.fm = "";
+  if (!["past","all"].includes(state.iv)) state.iv = "";
 }
 function writeHash() {
   const p = new URLSearchParams();
@@ -449,11 +479,52 @@ function modalContent(id, roles) {
     "kpi:skips": ["Apply skips (blocked Target)", roles.filter(r => r.status === "Target" && r.blocked_reason)]
   }[id];
   if (kp) return {title: kp[0], kind: "roles", rows: kp[1], count: plural(kp[1].length, "role")};
+  if (id.startsWith("role:")) return timelineContent(+id.slice(5));
+  if (id === "int:upcoming") {
+    const rows = filteredInterviews(roles).filter(isUpcoming);
+    return {title: "Upcoming interviews", kind: "ints", rows, count: plural(rows.length, "interview"), note: "Interviews still scheduled for today or later (or booked without a date yet), for roles in the current filter."};
+  }
   if (id === "int:all") {
     const rows = filteredInterviews(roles);
     return {title: "All interviews", kind: "ints", rows, count: plural(rows.length, "interview"), note: "Every logged interview for roles in the current filter, whatever the application's current status (one row per interview)."};
   }
   return null;
+}
+/* ---------- role timeline ---------- */
+const DA_SRC = {email_confirmation: "application acknowledgement email", inbound_agreed: "when Elena agreed to proceed / was submitted", inbound_first_contact: "first contact (agreement not traceable in email)", manual: "tracker note (no acknowledgement email found)", import: "imported from the original Sheet"};
+const KIND_LABEL = {application_confirmation: "application acknowledged", outreach: "outreach", reply: "reply", scheduling: "scheduling", interview: "interview logistics", assessment: "assessment", rejection: "rejection", offer: "offer", withdrawal: "withdrawal", follow_up: "follow-up", notification: "notification", other: "message"};
+function roleForApp(id) {
+  const a = DATA.appById.get(id); if (!a) return null;
+  return toRoles(DATA.apps.filter(x => x._rk === a._rk))[0] || null;
+}
+function timelineContent(id) {
+  const r = roleForApp(id); if (!r) return null;
+  const items = [];
+  for (const a of r.rows) {
+    for (const e of a._events) items.push({t: e.occurred_at, k: "ev", e, a});
+    for (const m of a._msgs) items.push({t: m.occurred_at, k: "msg", m, a});
+    for (const iv of a._ints) { const t = iv.scheduled_at || (iv.interview_date ? iv.interview_date + "T16:00:00Z" : null); if (t) items.push({t, k: "iv", iv, a}); }
+  }
+  items.sort((x, y) => x.t.localeCompare(y.t) || (x.k === "ev" ? -1 : 1));
+  const multi = r.rows.length > 1;
+  const chainEv = r.rows.flatMap(a => a._events).sort((x, y) => x.occurred_at.localeCompare(y.occurred_at));
+  const chain = chainEv.map(e => `<span class="pill ${pillCls(e.to_status)}">${esc(e.to_status)}</span>`).join(`<span class="ar">→</span>`);
+  const nIn = items.filter(i => i.k === "msg" && i.m.direction === "Inbound").length, nOut = items.filter(i => i.k === "msg" && i.m.direction === "Outbound").length;
+  const precise = e => e.date_precision === "exact" ? fmtDT(e.occurred_at) : fmtD(new Date(e.occurred_at).toLocaleDateString("en-CA", {timeZone: "America/New_York"})) + (e.date_precision === "approximate" ? " <span class=\"muted\" title=\"Approximate date\">≈</span>" : "");
+  const srcTxt = {email: "from email", linkedin: "from LinkedIn", interview: "from an interview record", notes: "from tracker notes", import: "date added to tracker", trigger: "logged when the tracker changed", manual: "set in review"};
+  const li = items.map(i => {
+    if (i.k === "ev") return `<li class="ev"><span class="when">${precise(i.e)}</span><span class="ic" aria-hidden="true">◆</span><span>Status → <span class="pill ${pillCls(i.e.to_status)}">${esc(i.e.to_status)}</span> <span class="meta">${esc(srcTxt[i.e.source] || i.e.source)}${multi ? ` · row ${i.a.id}` : ""}</span></span></li>`;
+    if (i.k === "msg") { const m = i.m, icon = m.channel === "LinkedIn" ? "in" : "✉";
+      return `<li><span class="when">${fmtDT(m.occurred_at)}</span><span class="ic" aria-hidden="true">${icon}</span><span>${esc(m.channel)} ${m.direction === "Outbound" ? "sent by Elena" : "received"} · ${esc(KIND_LABEL[m.kind] || m.kind || "message")}${m.is_partial ? ` <span class="meta">(notification only)</span>` : ""}</span></li>`; }
+    const iv = i.iv;
+    return `<li><span class="when">${iv.scheduled_at ? fmtDT(iv.scheduled_at) : fmtD(iv.interview_date)}</span><span class="ic" aria-hidden="true">☎</span><span>Interview ${(iv.type_tags || []).map(t => `<span class="pill">${esc(t)}</span>`).join(" ")} <span class="pill st-${esc(iv.state || "Completed")}">${esc(iv.state || "")}</span> <span class="pill oc-${esc(iv.outcome)}">${esc(iv.outcome)}</span></span></li>`;
+  }).join("");
+  const da = r.date_applied ? `${esc(r.date_applied)} <span class="muted">(${esc(DA_SRC[(r.rows.find(a => a.date_applied === r.date_applied) || {}).date_applied_source] || "source not recorded")})</span>` : `<span class="muted">none</span>`;
+  const html = `<div class="chain">${chain || `<span class="muted">No status history.</span>`}</div>
+    <p class="sub" style="margin:0 0 8px">Origin <span class="pill o-${esc(r.origin)}">${esc(r.origin)}</span> · Date applied ${da} · ${plural(r.ints.length, "interview")} · ${fmt(nIn)} received / ${fmt(nOut)} sent${r.job_url ? ` · ${linkCell(r.job_url)}` : ""}</p>
+    <ul class="tl">${li || `<li><span class="muted">Nothing logged yet.</span></li>`}</ul>`;
+  return {title: `${r.company || "—"} — ${r.title}`, kind: "timeline", rows: [], count: r.status, html,
+    note: `Everything logged for this role, oldest first: status changes (◆), emails and LinkedIn messages (✉ / in), and interviews (☎). Message contents, names and email addresses are never published.${multi ? ` This role merges ${r.rows.length} tracker rows.` : ""}`};
 }
 /* Interviewing status modal: one row per interview, only for roles whose current status is Interviewing */
 function interviewsModal(roles) {
@@ -478,7 +549,7 @@ function render() {
   if (state.from || state.to) parts.push(`${state.df === "added" ? "Date added" : "Date applied"} ${state.from || "…"} → ${state.to || "…"} (rows without that date are excluded)`);
   for (const [id,k,n] of [["#f_src","src","Source"],["#f_rf","rf","Role family"],["#f_wp","wp","Workplace"]]) if (state[k]) parts.push(`${n}: ${lab(id)}`);
   $("#filterSummary").innerHTML = `Showing <b>${fmt(roles.length)}</b> roles (${fmt(rows.length)} of ${fmt(DATA.apps.length)} rows)` + (parts.length ? ` · ${esc(parts.join(" · "))}` : " · no filters");
-  renderKpis(roles); renderFunnel(roles); renderDaily(roles); renderWeekly(roles); renderStatus(roles); renderInterviews(roles); renderPipeline(roles); renderQA(rows); renderSheet(); renderDefs();
+  renderKpis(roles); renderFunnel(roles); renderDaily(roles); renderWeekly(roles); renderStatus(roles); renderInterviews(roles); renderIvSchedule(roles); renderPipeline(roles); renderQA(rows); renderSheet(); renderDefs();
   if (!$("#modal").hidden) renderModal();
 }
 function renderKpis(roles) {
@@ -487,7 +558,7 @@ function renderKpis(roles) {
   const ivs = filteredInterviews(roles).length;
   const k = [["kpi:all", fmt(c("kpi:all")), "Roles (all statuses)"], ["kpi:applied", fmt(c("kpi:applied")), "Roles with date applied"],
     ["kpi:today", `${c("kpi:today")}/${QUOTA}`, `Applied today (${t})`], ["kpi:active", fmt(c("kpi:active")), "Active pipeline"],
-    ["int:all", fmt(ivs), "Interviews logged"], ["kpi:skips", fmt(c("kpi:skips")), "Apply skips (blocked Target)"]];
+    ["int:all", fmt(ivs), "Interviews logged"], ["int:upcoming", fmt(filteredInterviews(roles).filter(isUpcoming).length), "Upcoming interviews"], ["kpi:skips", fmt(c("kpi:skips")), "Apply skips (blocked Target)"]];
   $("#kpis").innerHTML = k.map(([id, b, s]) => `<button type="button" class="kpi click" data-modal="${id}" title="Show the list"><b>${b}</b><span>${esc(s)} ›</span></button>`).join("");
 }
 function renderFunnel(roles) {
@@ -587,13 +658,31 @@ function renderInterviews(roles) {
   hbar($("#chTags"), Object.entries(tags).sort((a,b) => b[1]-a[1]).map(([k,v]) => ({label: k, v, c: k === "(untagged)" ? "#ced4da" : "#12b886"})));
   hbar($("#chOut"), ["Passed","Pending","Failed","Unknown"].map(k => ({label: k, v: oc[k] || 0, c: ocC[k]})));
 }
+/* ---------- interview schedule ---------- */
+const ET_DT = {timeZone:"America/New_York", month:"short", day:"numeric", year:"numeric", hour:"numeric", minute:"2-digit"};
+const ET_D = {timeZone:"America/New_York", month:"short", day:"numeric", year:"numeric"};
+const fmtDT = ts => new Date(ts).toLocaleString("en-US", ET_DT);
+const fmtD = d => new Date(d + "T12:00:00Z").toLocaleDateString("en-US", {...ET_D, timeZone:"UTC"});
+const ivWhenKey = iv => iv.scheduled_at || (iv.interview_date ? iv.interview_date + "T23:59:00Z" : "");
+const ivWhen = iv => iv.scheduled_at ? fmtDT(iv.scheduled_at) : iv.interview_date ? fmtD(iv.interview_date) + " <span class=\"muted\">(time not logged)</span>" : `<span class="muted">not yet scheduled</span>`;
+const isUpcoming = iv => iv.state === "Scheduled" && (!iv.interview_date || iv.interview_date >= todayET());
+function renderIvSchedule(roles) {
+  const all = filteredInterviews(roles);
+  const up = all.filter(isUpcoming), past = all.filter(x => !isUpcoming(x));
+  const rows = state.iv === "past" ? past : state.iv === "all" ? all : up;
+  const dir = state.iv === "" ? 1 : -1;
+  const sorted = rows.slice().sort((a, b) => { const x = ivWhenKey(a), y = ivWhenKey(b); if (!x) return 1; if (!y) return -1; return x.localeCompare(y) * dir; });
+  $("#ivWrap").innerHTML = tableHTML(IV_COLS, sorted, null, 1, state.iv === "" ? "No upcoming interviews in the current filter." : "No interviews here under the current filter.");
+  document.querySelectorAll("#ivCard [data-iv]").forEach(b => { b.classList.toggle("on", b.dataset.iv === state.iv); b.textContent = {"": `Upcoming (${up.length})`, past: `Past (${past.length})`, all: `All (${all.length})`}[b.dataset.iv]; });
+}
 /* ---------- shared table rendering ---------- */
 const pillCls = s => s === "Interviewing" ? "s4" : s === "Non-technical screen" ? "s3" : s === "Contact with next step" ? "s2" : TERMINAL.has(s) ? "s9" : s === "Target" ? "s0" : "";
 const statusLabel = s => s;
 const host = u => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return "link"; } };
 const linkCell = u => /^https?:\/\//i.test(u || "") ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(host(u))}</a>` : "—";
+const roleLink = (id, name) => `<a href="#" class="rolelink" data-modal="role:${id}" title="Show this role’s timeline">${esc(name || "—")}</a>`;
 const ROLE_COLS = [
-  {k:"company", h:"Company", f:r => esc(r.company || "—") + (r.n_rows > 1 ? ` <span class="muted" title="${r.n_rows} duplicate rows merged">×${r.n_rows}</span>` : "")},
+  {k:"company", h:"Company", f:r => roleLink(r.rep.id, r.company) + (r.n_rows > 1 ? ` <span class="muted" title="${r.n_rows} duplicate rows merged">×${r.n_rows}</span>` : "")},
   {k:"title", h:"Title", f:r => esc(r.title)},
   {k:"status", h:"Current status", f:r => `<span class="pill ${pillCls(r.status)}">${esc(statusLabel(r.status))}</span>`, sv:r => STATUS_ORDER.indexOf(r.status)},
   {k:"origin", h:"Origin", f:r => `<span class="pill o-${esc(r.origin)}">${esc(r.origin)}</span>${r.origin_ambiguous ? ` <span class="muted" title="Ambiguous: classified by rule">?</span>` : ""}`},
@@ -607,15 +696,17 @@ const ROLE_COLS = [
   {k:"job_url", h:"Job link", f:r => linkCell(r.job_url), nosort:true}
 ];
 const INT_COLS = [
-  {k:"company", h:"Company", f:r => esc(r._app.company || "—"), sv:r => r._app.company},
+  {k:"company", h:"Company", f:r => roleLink(r._app.id, r._app.company), sv:r => r._app.company},
   {k:"title", h:"Title", f:r => esc(r._app.title), sv:r => r._app.title},
-  {k:"interview_date", h:"Interview date", cls:"d"},
+  {k:"interview_date", h:"When (ET)", f:r => ivWhen(r), sv:r => ivWhenKey(r) || null},
+  {k:"state", h:"State", f:r => `<span class="pill st-${esc(r.state || "Completed")}">${esc(r.state || "—")}</span>`},
   {k:"type_tags", h:"Type tags", f:r => (r.type_tags || []).length ? r.type_tags.map(t => `<span class="pill">${esc(t)}</span>`).join(" ") : `<span class="muted">untagged</span>`, sv:r => (r.type_tags || []).join(",")},
   {k:"origin", h:"Origin", f:r => `<span class="pill o-${esc(r._role.origin)}">${esc(r._role.origin)}</span>${r._role.origin_ambiguous ? ` <span class="muted" title="Ambiguous: classified by rule">?</span>` : ""}`, sv:r => r._role.origin},
   {k:"outcome", h:"Outcome", f:r => `<span class="pill oc-${esc(r.outcome)}">${esc(r.outcome)}</span>`},
   {k:"application_status", h:"Application status", f:r => `<span class="pill ${pillCls(r._app.status)}">${esc(statusLabel(r._app.status))}</span>`, sv:r => STATUS_ORDER.indexOf(r._app.status)},
   {k:"job_url", h:"Job link", f:r => linkCell(r._app.job_url), nosort:true}
 ];
+const IV_COLS = INT_COLS.filter(c => !["origin","job_url"].includes(c.k)).map(c => ({...c, nosort: true}));
 function sortRows(rows, cols, k, dir) {
   const col = cols.find(c => c.k === k); if (!col) return rows;
   const val = r => col.sv ? col.sv(r) : r[k];
@@ -649,17 +740,24 @@ function openModal(id) {
   writeHash(); $("#modal").hidden = false; document.body.classList.add("modal-open"); renderModal(); $("#mClose").focus();
 }
 function closeModal() {
+  modalBack = "";
   $("#modal").hidden = true; document.body.classList.remove("modal-open"); state.m = ""; writeHash();
   if (lastFocus && lastFocus.focus) lastFocus.focus();
 }
 function openModalFromState() { if (state.m && modalContent(state.m, filteredRoles())) { const m = state.m; state.m = ""; openModal(m); } else if (state.m) { state.m = ""; writeHash(); } }
 function renderModal() {
   const mc = modalContent(state.m, filteredRoles()); if (!mc) return closeModal();
+  const back = modalBack ? `<button type="button" class="btn ghost mback" id="mBack">‹ Back</button>` : "";
+  if (mc.kind === "timeline") {
+    $("#mTitle").innerHTML = `${back}${esc(mc.title)} <span class="count">${esc(mc.count)}</span>`;
+    $("#mNote").innerHTML = mc.note; $("#mTools").hidden = true; $("#mTable").innerHTML = mc.html; return;
+  }
+  $("#mTools").hidden = false;
   const cols = mc.kind === "ints" ? INT_COLS : withExtra(mc.extra);
   if (!modalSort.k) { modalSort.k = mc.kind === "ints" ? "interview_date" : "last_touch_date"; modalSort.dir = -1; }
   const q = modalSort.q.toLowerCase();
   const rows = mc.rows.filter(r => mc.kind === "ints" ? searchMatch(q, r._app.company, r._app.title, (r.type_tags || []).join(" "), r.outcome, r._app.status) : searchMatch(q, r.company, r.title, r.status, r.origin, r.withdrawn_by, r.withdrawn_reason, r.awaiting, r.blocked_reason));
-  $("#mTitle").innerHTML = `${esc(mc.title)} <span class="count">${esc(mc.count)}</span>`;
+  $("#mTitle").innerHTML = `${back}${esc(mc.title)} <span class="count">${esc(mc.count)}</span>`;
   $("#mNote").innerHTML = (mc.note || "") + (anyFilter() ? ` <span class="muted">Current filters apply.</span>` : "");
   if ($("#mQ").value !== modalSort.q) $("#mQ").value = modalSort.q;
   $("#mShown").textContent = q ? `${rows.length} of ${mc.rows.length} shown` : "";
@@ -707,7 +805,11 @@ function renderSheet() {
 function renderDefs() {
   const d = [
     ["Unit: role", "Everything on this page except Data quality and Sheet vs Supabase counts <b>roles</b>: rows with the same company and job title are merged into one role (company and title compared lower-case, without punctuation or parentheses, “Sr” = senior), so re-applying to the same job doesn’t double-count. A role takes the status of its most advanced row, its earliest date applied and its latest last-touch date; interview and contact counts are summed across its rows (×N next to a company shows how many rows were merged). Data quality and the Sheet comparison count raw rows."],
-    ["Data source", "Live, read-only Supabase views (funnel_applications, funnel_interviews, funnel_status_counts) loaded in pages of 1,000 rows. The views omit notes, contact identities, interviewer names and interview titles."],
+    ["Data source", "Live, read-only Supabase views (funnel_applications, funnel_interviews, funnel_status_counts, funnel_status_events, funnel_interactions) loaded in pages of 1,000 rows. The views omit notes, contact identities, interviewer names, interview titles and all message subjects and text."],
+    ["Role timeline", "Click any company name to open the role’s timeline: every status change, email/LinkedIn message and interview, oldest first. Status changes were reconstructed on 11/8 from Gmail, LinkedIn messages logged by the LinkedIn bot, interview records and tracker notes; each says where it came from (≈ = approximate date). Changes made since are logged automatically when the tracker status changes."],
+    ["Message activity", "One entry per email or LinkedIn message with a company or recruiter, in either direction, with its kind (outreach, reply, scheduling, rejection, …). “Notification only” means it came from a LinkedIn notification email that shows just part of the message. Contents are never published."],
+    ["Interview schedule", "<b>Upcoming</b> = state Scheduled and dated today or later (or booked without a date). <b>Past</b> = everything else, including Cancelled and No-show. Times are ET; older interviews may only have a date."],
+    ["Date applied", "Outbound: the date of the application acknowledgement email (or the tracker note when no email exists). Inbound: the date Elena agreed to proceed or a recruiter submitted her; when that can’t be traced (often agreed on a call), the first-contact date. The role timeline says which applies."],
     ["Statuses (rules from the 11/2 validation pass)", "<b>Target</b>: not applied yet (Apply skips stay here with a blocked reason). <b>Applied</b>: an application acknowledgement was received. <b>Contact with next step</b>: a first-call request not yet answered, or a LinkedIn inbound. <b>Non-technical screen</b>: a booked first call with a recruiter. <b>Interviewing</b>: a first call with a founder, exec or engineer, or any later round. <b>Rejected</b>: a rejection email was received. <b>Withdrawn</b>: closed without a rejection after it was applied to or a recruiter was engaged. <b>Skipped</b>: an outbound role that was never submitted (posting closed, pay under floor, location, duplicate, etc.). <b>Ghosted</b>: no reply. Offer / Offer Accepted as named."],
     ["Non-technical screen", "Count comes from the tracker status."],
     ["Reason (Withdrawn / Skipped lists)", "A short summary of why a Withdrawn or Skipped role was closed, derived privately from the tracker notes (latest Apply skip reason, validation note or Elena’s own note) with names, emails, links and phone numbers removed. “—” = no reason found."],
@@ -732,7 +834,13 @@ function bind() {
   $("#q").addEventListener("input", e => { state.q = e.target.value; writeHash(); renderPipeline(filteredRoles()); });
   $("#pipeWrap").addEventListener("click", e => { const th = e.target.closest("th.sort"); if (!th) return; const k = th.dataset.k; state.sortDir = state.sortK === k ? -state.sortDir : defaultDir(k); state.sortK = k; renderPipeline(filteredRoles()); });
   // open modal from any [data-modal]
-  document.addEventListener("click", e => { const el = e.target.closest("[data-modal]"); if (el && !$("#modal").contains(el)) { e.preventDefault(); openModal(el.dataset.modal); } });
+  document.addEventListener("click", e => {
+    const el = e.target.closest("[data-modal]"); if (!el) return;
+    if (!$("#modal").contains(el)) { e.preventDefault(); modalBack = ""; openModal(el.dataset.modal); return; }
+    if (el.dataset.modal.startsWith("role:")) { e.preventDefault(); modalBack = state.m; const sk = {...modalSort}; openModal(el.dataset.modal); modalBack_sort = sk; }
+  });
+  $("#modal").addEventListener("click", e => { if (e.target.closest("#mBack")) { const prev = modalBack; modalBack = ""; state.m = prev; Object.assign(modalSort, modalBack_sort || {}); writeHash(); renderModal(); } });
+  document.querySelectorAll("#ivCard [data-iv]").forEach(b => b.addEventListener("click", () => { state.iv = b.dataset.iv; writeHash(); renderIvSchedule(filteredRoles()); }));
   document.addEventListener("keydown", e => {
     if (e.key === "Escape" && !$("#modal").hidden) { closeModal(); return; }
     if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("g.clk")) { e.preventDefault(); openModal(e.target.dataset.modal); }
