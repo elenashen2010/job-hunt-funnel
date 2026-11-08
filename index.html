@@ -252,7 +252,7 @@ const STATUS_ORDER = ["Target","Applied","Contact with next step","Non-technical
 const STATUS_STAGE = {"Applied":1,"Contact with next step":2,"Non-technical screen":3,"Interviewing":4,"Offer":5,"Offer Accepted":6};
 const ACTIVE = ["Contact with next step","Non-technical screen","Interviewing"];
 const TERMINAL = new Set(["Rejected","Withdrawn","Skipped","Ghosted"]);
-const SUBSTANTIVE_TAGS = new Set(["technical: debugging","technical: coding","technical: system design","culture fit","founder","final round","onsite"]);
+const SUBSTANTIVE_TAGS = new Set(["technical: debugging","technical: coding","technical: system design","culture fit","founder","final round","onsite","intro call"]);
 // COLORS: set by loadPalette() from CSS variables
 const QUOTA = 20;
 /* inbound segment = same hue, darker */
@@ -465,7 +465,6 @@ function modalContent(id, roles) {
   }
   const st = statusFromId(id);
   if (st) {
-    if (st === "Interviewing") return interviewsModal(roles);
     const seg = statusSegments(roles).find(s => s.status === st);
     const nRows = seg.nRows;
     return {title: st, kind: "roles", rows: seg.roles, count: plural(seg.roles.length, "role"), extra: EXTRA_COLS[st],
@@ -525,15 +524,6 @@ function timelineContent(id) {
     <ul class="tl">${li || `<li><span class="muted">Nothing logged yet.</span></li>`}</ul>`;
   return {title: `${r.company || "—"} — ${r.title}`, kind: "timeline", rows: [], count: r.status, html,
     note: `Everything logged for this role, oldest first: status changes (◆), emails and LinkedIn messages (✉ / in), and interviews (☎). Message contents, names and email addresses are never published.${multi ? ` This role merges ${r.rows.length} tracker rows.` : ""}`};
-}
-/* Interviewing status modal: one row per interview, only for roles whose current status is Interviewing */
-function interviewsModal(roles) {
-  const rs = roles.filter(r => r.status === "Interviewing");
-  const rows = filteredInterviews(rs);
-  const noIv = rs.filter(r => !r.ints.length);
-  let note = `<b>${fmt(rs.length)}</b> roles currently at status <b>Interviewing</b> (same number as the bar; ${esc(splitStr(rs))}), shown as one row per logged interview (${fmt(rows.length)} interviews).`;
-  if (noIv.length) note += `<br>${noIv.length} of them have no interview logged yet, so they have no row: ${noIv.map(r => esc(r.company || "—")).join(", ")}.`;
-  return {title: "Interviewing", kind: "ints", rows, count: `${plural(rs.length, "role")} · ${plural(rows.length, "interview")}`, note};
 }
 
 /* ---------- render ---------- */
@@ -806,6 +796,7 @@ function renderDefs() {
   const d = [
     ["Unit: role", "Everything on this page except Data quality and Sheet vs Supabase counts <b>roles</b>: rows with the same company and job title are merged into one role (company and title compared lower-case, without punctuation or parentheses, “Sr” = senior), so re-applying to the same job doesn’t double-count. A role takes the status of its most advanced row, its earliest date applied and its latest last-touch date; interview and contact counts are summed across its rows (×N next to a company shows how many rows were merged). Data quality and the Sheet comparison count raw rows."],
     ["Data source", "Live, read-only Supabase views (funnel_applications, funnel_interviews, funnel_status_counts, funnel_status_events, funnel_interactions) loaded in pages of 1,000 rows. The views omit notes, contact identities, interviewer names, interview titles and all message subjects and text."],
+    ["Interview tags", "<b>non-technical screen</b> = a call with a recruiter, talent or agency person (the Non-technical screen stage). <b>intro call</b> = a first call with someone at the company itself (founder, exec, hiring manager or engineer), which counts as Interviewing. The technical, culture, founder, final-round and onsite tags describe later rounds; hiring-manager interviews without a more specific type stay untagged."],
     ["Role timeline", "Click any company name to open the role’s timeline: every status change, email/LinkedIn message and interview, oldest first. Status changes were reconstructed on 11/8 from Gmail, LinkedIn messages logged by the LinkedIn bot, interview records and tracker notes; each says where it came from (≈ = approximate date). Changes made since are logged automatically when the tracker status changes."],
     ["Message activity", "One entry per email or LinkedIn message with a company or recruiter, in either direction, with its kind (outreach, reply, scheduling, rejection, …). “Notification only” means it came from a LinkedIn notification email that shows just part of the message. Contents are never published."],
     ["Interview schedule", "<b>Upcoming</b> = state Scheduled and dated today or later (or booked without a date). <b>Past</b> = everything else, including Cancelled and No-show. Times are ET; older interviews may only have a date."],
@@ -815,7 +806,7 @@ function renderDefs() {
     ["Reason (Withdrawn / Skipped lists)", "A short summary of why a Withdrawn or Skipped role was closed, derived privately from the tracker notes (latest Apply skip reason, validation note or Elena’s own note) with names, emails, links and phone numbers removed. “—” = no reason found."],
     ["Withdrawn by / Skipped by", "Set only on Withdrawn and Skipped roles: <b>Elena</b> (she withdrew) or <b>Automated</b> (closed automatically, not by Elena)."],
     ["Awaiting", "On Contact with next step roles: whose move it is, <b>Elena</b> or <b>Them</b>."],
-    ["Click-through lists", "Click any funnel bar, status bar or headline card to see the roles behind that number (sortable, searchable; Esc, × or a click outside closes it). In Current status mode a status list shows <b>only</b> roles whose current status is exactly that status; in Funnel (reached) mode it lists the roles that reached the stage. Either way the count equals the bar. Lists include an Origin column. The Interviewing list shows one row per logged interview, only for roles currently at Interviewing. “Interviews logged” on the headline lists every interview whatever the status. The open list is saved in the link."],
+    ["Click-through lists", "Click any funnel bar, status bar or headline card to see the roles behind that number (sortable, searchable; Esc, × or a click outside closes it). In Current status mode a status list shows <b>only</b> roles whose current status is exactly that status; in Funnel (reached) mode it lists the roles that reached the stage. Either way the count equals the bar. Lists include an Origin column. “Interviews logged” on the headline, and the Interview schedule section, list individual interviews. The open list is saved in the link."],
     ["Funnel (reached) mode", "Toggle on the funnel chart; saved in the link. Each bar = roles that reached that stage or any later stage; clicking a bar lists exactly those roles with their current status. Stage order: Applied → Contact with next step → Non-technical screen → Interviewing → Offer → Offer Accepted. A role reaches its current active stage; Rejected / Withdrawn / Ghosted roles are placed by evidence (a logged technical, culture-fit, founder, final-round or onsite interview → Interviewing; any other logged interview → Non-technical screen; otherwise a date applied → Applied). Step % = this bar ÷ previous bar. In Current status mode (the default) each role counts once at its current status."],
     ["Origin: outbound vs. inbound", "<b>Outbound</b> = Elena’s own application or an Apply-bot submit; <b>Inbound</b> = a recruiter or company LinkedIn message or email reached her first. Per tracker row: a linked recruiter/company contact with no date applied, or whose first touch is before the date applied → Inbound; no linked contact but notes record recruiter outreach (InMail, outreach, LinkedIn message, recruiter email, pitch, Paraform submit) and no own application → Inbound; everything else (own applications, Apply submits, scraped / Target rows) → Outbound. A merged role takes the origin of its row with the earliest known touch. A LinkedIn connection request alone never counts as inbound. Gmail only shows the other side of LinkedIn threads, so a recruiter reply seen in Gmail is not taken as “they wrote first”; the contact’s first-touch date is what is compared. <b>Ambiguous</b> (marked “?” in lists): a contact whose first touch is on/after the date applied or undated → Outbound if the notes show her own application, else Inbound; or no contact and notes show both → Outbound. Derived server-side; no notes or contact details are exposed."],
     ["Apply skips", "Roles the Apply bot skipped stay at Target with a blocked_reason (e.g. Greenhouse self-apply, account needed, awaiting OK); the Target list shows the reason."],
