@@ -18,6 +18,7 @@
   --status-offer-accepted:#2b8a3e;  /* Offer Accepted */
   --status-rejected:#e03131;        /* Rejected */
   --status-withdrawn:#868e96;       /* Withdrawn */
+  --status-skipped:#ced4da;         /* Skipped (never submitted) */
   --status-ghosted:#495057;         /* Ghosted */
   /* Inbound segment = status color darkened by this amount.
      22% = inbound is 22% darker; 0% = same as outbound; 100% = black. */
@@ -220,15 +221,15 @@ let STAGE_COLORS = [], COLORS = {}, OUTCOME_COLORS = {}, LEGEND_OUT = "", DARKEN
 function loadPalette() {
   const v = k => cssVar("--status-" + k);
   STAGE_COLORS = ["applied","contact","screen","interviewing","offer","offer-accepted"].map(v);
-  COLORS = {"Target": v("target"), "Applied": v("applied"), "Contact with next step": v("contact"), "Non-technical screen": v("screen"), "Interviewing": v("interviewing"), "Offer": v("offer"), "Offer Accepted": v("offer-accepted"), "Rejected": v("rejected"), "Withdrawn": v("withdrawn"), "Ghosted": v("ghosted")};
+  COLORS = {"Target": v("target"), "Applied": v("applied"), "Contact with next step": v("contact"), "Non-technical screen": v("screen"), "Interviewing": v("interviewing"), "Offer": v("offer"), "Offer Accepted": v("offer-accepted"), "Rejected": v("rejected"), "Withdrawn": v("withdrawn"), "Skipped": v("skipped"), "Ghosted": v("ghosted")};
   OUTCOME_COLORS = {Passed: cssVar("--outcome-passed"), Failed: cssVar("--outcome-failed"), Pending: cssVar("--outcome-pending"), Unknown: cssVar("--outcome-unknown")};
   LEGEND_OUT = cssVar("--legend-outbound");
   const d = parseFloat(cssVar("--inbound-darken")); DARKEN_F = 1 - (isNaN(d) ? 30 : Math.min(100, Math.max(0, d))) / 100;
 }
-const STATUS_ORDER = ["Target","Applied","Contact with next step","Non-technical screen","Interviewing","Offer","Offer Accepted","Rejected","Withdrawn","Ghosted"];
+const STATUS_ORDER = ["Target","Applied","Contact with next step","Non-technical screen","Interviewing","Offer","Offer Accepted","Rejected","Withdrawn","Skipped","Ghosted"];
 const STATUS_STAGE = {"Applied":1,"Contact with next step":2,"Non-technical screen":3,"Interviewing":4,"Offer":5,"Offer Accepted":6};
 const ACTIVE = ["Contact with next step","Non-technical screen","Interviewing"];
-const TERMINAL = new Set(["Rejected","Withdrawn","Ghosted"]);
+const TERMINAL = new Set(["Rejected","Withdrawn","Skipped","Ghosted"]);
 const SUBSTANTIVE_TAGS = new Set(["technical: debugging","technical: coding","technical: system design","culture fit","founder","final round","onsite"]);
 // COLORS: set by loadPalette() from CSS variables
 const QUOTA = 20;
@@ -338,7 +339,7 @@ function toRoles(rows) {
     const origin_ambiguous = !!oRow.origin_ambiguity || (mixed && first === "9999-12-31");
     const rep = rs.slice().sort((x, y) => y._stage - x._stage || String(y.last_touch_date || "").localeCompare(String(x.last_touch_date || "")) || y.id - x.id)[0];
     return {key, rows: rs, n_rows: rs.length, rep, company: rep.company, title: rep.title, status: rep.status, stage: Math.max(...rs.map(r => r._stage)),
-      blocked_reason: rep.blocked_reason, origin, origin_ambiguous, withdrawn_by: rep.withdrawn_by ?? null, withdrawn_reason: rep.withdrawn_reason ?? (rs.find(r => r.status === "Withdrawn" && r.withdrawn_reason) || {}).withdrawn_reason ?? null, awaiting: rep.awaiting ?? null, job_url: rep.job_url || (rs.find(r => r.job_url) || {}).job_url || null,
+      blocked_reason: rep.blocked_reason, origin, origin_ambiguous, withdrawn_by: rep.withdrawn_by ?? null, withdrawn_reason: rep.withdrawn_reason ?? (rs.find(r => (r.status === "Withdrawn" || r.status === "Skipped") && r.withdrawn_reason) || {}).withdrawn_reason ?? null, awaiting: rep.awaiting ?? null, job_url: rep.job_url || (rs.find(r => r.job_url) || {}).job_url || null,
       date_applied: minD(rs, "date_applied"), last_touch_date: maxD(rs, "last_touch_date"),
       n_interviews: sum(rs, "n_interviews"), n_contacts_email: sum(rs, "n_contacts_email"), n_contacts_linkedin: sum(rs, "n_contacts_linkedin"),
       n_contacts_referral: sum(rs, "n_contacts_referral"), n_contacts_other: sum(rs, "n_contacts_other"),
@@ -401,7 +402,7 @@ function statusSegments(roles) {
     const rs = roles.filter(r => r.status === s);
     let sub = "";
     if (s === "Target") sub = splitTxt([["Apply skips", rs.filter(r => r.blocked_reason).length], ["not yet attempted", rs.filter(r => !r.blocked_reason).length]]);
-    if (s === "Withdrawn") sub = splitTxt([["by Elena", rs.filter(r => r.withdrawn_by === "Elena").length], ["Automated", rs.filter(r => r.withdrawn_by === "Automated").length], ["unrecorded", rs.filter(r => !r.withdrawn_by).length]]);
+    if (s === "Withdrawn" || s === "Skipped") sub = splitTxt([["by Elena", rs.filter(r => r.withdrawn_by === "Elena").length], ["Automated", rs.filter(r => r.withdrawn_by === "Automated").length], ["unrecorded", rs.filter(r => !r.withdrawn_by).length]]);
     if (s === "Contact with next step") sub = splitTxt([["awaiting Elena", rs.filter(r => r.awaiting === "Elena").length], ["awaiting them", rs.filter(r => r.awaiting === "Them").length], ["unrecorded", rs.filter(r => !r.awaiting).length]]);
     if (s === "Rejected") sub = splitTxt([["with date applied", rs.filter(roleRejectedApplied).length], ["no date applied", rs.filter(r => !roleRejectedApplied(r)).length]]);
     const nRows = roles.reduce((n, r) => n + r.rows.filter(a => a.status === s).length, 0);
@@ -418,6 +419,8 @@ function statusFromId(id) {
 const EXTRA_COLS = {
   "Withdrawn": [{k:"withdrawn_by", h:"Withdrawn by", f:r => r.withdrawn_by ? `<span class="pill ${r.withdrawn_by === "Elena" ? "s2" : "s0"}">${esc(r.withdrawn_by)}</span>` : `<span class="muted">—</span>`},
     {k:"withdrawn_reason", h:"Reason", cls:"reason", f:r => r.withdrawn_reason ? esc(r.withdrawn_reason) : `<span class="muted">—</span>`}],
+  "Skipped": [{k:"withdrawn_by", h:"Skipped by", f:r => r.withdrawn_by ? `<span class="pill ${r.withdrawn_by === "Elena" ? "s2" : "s0"}">${esc(r.withdrawn_by)}</span>` : `<span class="muted">—</span>`},
+    {k:"withdrawn_reason", h:"Skip reason", cls:"reason", f:r => r.withdrawn_reason ? esc(r.withdrawn_reason) : `<span class="muted">—</span>`}],
   "Contact with next step": {k:"awaiting", h:"Awaiting", f:r => r.awaiting ? `<span class="pill ${r.awaiting === "Elena" ? "s3" : "s0"}">${esc(r.awaiting)}</span>` : `<span class="muted">—</span>`},
   "Target": {k:"blocked_reason", h:"Apply skip reason", f:r => r.blocked_reason ? esc(r.blocked_reason) : `<span class="muted">—</span>`}
 };
@@ -519,7 +522,7 @@ function renderFunnel(roles) {
   const closed = roles.filter(r => TERMINAL.has(r.status)).length, target = roles.filter(r => r.status === "Target").length;
   $("#funnel").innerHTML = `<p class="sub">${fmt(roles.length)} roles in filter (${esc(splitStr(roles))}). ${reachedMode ? "" : `${fmt(target)} at Target and ${fmt(closed)} closed are not funnel bars; see Status breakdown. `}<b>Click a bar</b> for the list.</p>` + svg + legend;
   const amb = roles.filter(r => r.origin_ambiguous).length;
-  $("#funnelNotes").innerHTML = `<div class="note">${reachedMode ? "Reached mode is cumulative: a role at Interviewing also counts in every earlier bar, and Rejected / Withdrawn / Ghosted roles count up to the stage their evidence shows. Outbound and inbound segments are cumulative the same way." : "Current mode counts each role once, at its current status."} ${fmt(amb)} role(s) in this filter have an ambiguous origin and were classified by a fixed rule (see Definitions).</div>`;
+  $("#funnelNotes").innerHTML = `<div class="note">${reachedMode ? "Reached mode is cumulative: a role at Interviewing also counts in every earlier bar, and Rejected / Withdrawn / Skipped / Ghosted roles count up to the stage their evidence shows. Outbound and inbound segments are cumulative the same way." : "Current mode counts each role once, at its current status."} ${fmt(amb)} role(s) in this filter have an ambiguous origin and were classified by a fixed rule (see Definitions).</div>`;
 }
 /* --- tiny SVG chart helpers --- */
 function barChart(el, items, {quota=null, color="#4c6ef5", h=220, labelEvery=1, yLabel=""} = {}) {
@@ -705,10 +708,10 @@ function renderDefs() {
   const d = [
     ["Unit: role", "Everything on this page except Data quality and Sheet vs Supabase counts <b>roles</b>: rows with the same company and job title are merged into one role (company and title compared lower-case, without punctuation or parentheses, “Sr” = senior), so re-applying to the same job doesn’t double-count. A role takes the status of its most advanced row, its earliest date applied and its latest last-touch date; interview and contact counts are summed across its rows (×N next to a company shows how many rows were merged). Data quality and the Sheet comparison count raw rows."],
     ["Data source", "Live, read-only Supabase views (funnel_applications, funnel_interviews, funnel_status_counts) loaded in pages of 1,000 rows. The views omit notes, contact identities, interviewer names and interview titles."],
-    ["Statuses (rules from the 11/2 validation pass)", "<b>Target</b>: not applied yet (Apply skips stay here with a blocked reason). <b>Applied</b>: an application acknowledgement was received. <b>Contact with next step</b>: a first-call request not yet answered, or a LinkedIn inbound. <b>Non-technical screen</b>: a booked first call with a recruiter. <b>Interviewing</b>: a first call with a founder, exec or engineer, or any later round. <b>Rejected</b>: a rejection email was received. <b>Withdrawn</b>: closed without a rejection. <b>Ghosted</b>: no reply. Offer / Offer Accepted as named."],
+    ["Statuses (rules from the 11/2 validation pass)", "<b>Target</b>: not applied yet (Apply skips stay here with a blocked reason). <b>Applied</b>: an application acknowledgement was received. <b>Contact with next step</b>: a first-call request not yet answered, or a LinkedIn inbound. <b>Non-technical screen</b>: a booked first call with a recruiter. <b>Interviewing</b>: a first call with a founder, exec or engineer, or any later round. <b>Rejected</b>: a rejection email was received. <b>Withdrawn</b>: closed without a rejection after it was applied to or a recruiter was engaged. <b>Skipped</b>: an outbound role that was never submitted (posting closed, pay under floor, location, duplicate, etc.). <b>Ghosted</b>: no reply. Offer / Offer Accepted as named."],
     ["Non-technical screen", "Count comes from the tracker status."],
-    ["Reason (Withdrawn list)", "A short summary of why a Withdrawn role was withdrawn, derived privately from the tracker notes (latest Apply skip reason, validation note or Elena’s own note) with names, emails, links and phone numbers removed. “—” = no reason found."],
-    ["Withdrawn by", "Set only on Withdrawn roles: <b>Elena</b> (she withdrew) or <b>Automated</b> (closed automatically, not by Elena)."],
+    ["Reason (Withdrawn / Skipped lists)", "A short summary of why a Withdrawn or Skipped role was closed, derived privately from the tracker notes (latest Apply skip reason, validation note or Elena’s own note) with names, emails, links and phone numbers removed. “—” = no reason found."],
+    ["Withdrawn by / Skipped by", "Set only on Withdrawn and Skipped roles: <b>Elena</b> (she withdrew) or <b>Automated</b> (closed automatically, not by Elena)."],
     ["Awaiting", "On Contact with next step roles: whose move it is, <b>Elena</b> or <b>Them</b>."],
     ["Click-through lists", "Click any funnel bar, status bar or headline card to see the roles behind that number (sortable, searchable; Esc, × or a click outside closes it). In Current status mode a status list shows <b>only</b> roles whose current status is exactly that status; in Funnel (reached) mode it lists the roles that reached the stage. Either way the count equals the bar. Lists include an Origin column. The Interviewing list shows one row per logged interview, only for roles currently at Interviewing. “Interviews logged” on the headline lists every interview whatever the status. The open list is saved in the link."],
     ["Funnel (reached) mode", "Toggle on the funnel chart; saved in the link. Each bar = roles that reached that stage or any later stage; clicking a bar lists exactly those roles with their current status. Stage order: Applied → Contact with next step → Non-technical screen → Interviewing → Offer → Offer Accepted. A role reaches its current active stage; Rejected / Withdrawn / Ghosted roles are placed by evidence (a logged technical, culture-fit, founder, final-round or onsite interview → Interviewing; any other logged interview → Non-technical screen; otherwise a date applied → Applied). Step % = this bar ÷ previous bar. In Current status mode (the default) each role counts once at its current status."],
