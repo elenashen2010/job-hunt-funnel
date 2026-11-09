@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="icon" href="data:,">
-<title>Elena Shen — Job Hunt Funnel</title>
+<title>My Job Hunt Funnel</title>
 <style>
 /* ===== CHART COLORS: edit these, then reload the page =====
    Status bar colors (outbound segment = the color as written). */
@@ -137,7 +137,7 @@ body.modal-open{overflow:hidden}
 </head>
 <body>
 <header>
-  <h1>Elena Shen — Job Hunt Funnel</h1>
+  <h1>My Job Hunt Funnel</h1>
   <div class="meta">
     <span>Data as of <b id="asof">—</b></span>
     <span id="rowsinfo" class="muted" style="color:#dbe4ff"></span>
@@ -184,7 +184,7 @@ body.modal-open{overflow:hidden}
   <div class="grid g2">
     <section class="card"><h2>Daily applications</h2><p class="sub">Roles by (earliest) date applied. Dashed line = 20/day quota.</p><div id="chDaily"></div></section>
     <section class="card"><h2>Weekly applications</h2><p class="sub">Roles by (earliest) date applied, weeks start Monday. Dashed line = 140/week (20 × 7).</p><div id="chWeekly"></div></section>
-    <section class="card"><h2>Status breakdown</h2><p class="sub">Current status of every role in the filter. Click any bar for exactly the roles at that status. Grey text shows splits within a status (Withdrawn by Elena vs. Automated, Contact awaiting Elena vs. Them, Target Apply skips).</p><div id="chStatus"></div></section>
+    <section class="card"><h2>Status breakdown</h2><p class="sub">Current status of every role in the filter. Click any bar for exactly the roles at that status. Grey text shows splits within a status (Withdrawn by me vs. Automated, Contact awaiting me vs. Them, Target Apply skips).</p><div id="chStatus"></div></section>
     <section class="card"><h2>Interviews</h2><p class="sub">From the interviews table, for applications in the filter. Interviews by type tag (an interview can carry several tags) and by outcome.</p><div id="chInt"></div></section>
   </div>
 
@@ -216,7 +216,7 @@ body.modal-open{overflow:hidden}
     <h2>Definitions</h2>
     <dl class="defs" id="defs"></dl>
   </section>
-  <p class="muted" style="font-size:12px">Read-only page. Data comes from public, privacy-safe Supabase views (no notes, contact names, emails or interviewer names). Generated for Elena Shen.</p>
+  <p class="muted" style="font-size:12px">Read-only page. Data comes from public, privacy-safe Supabase views (no notes, contact names, emails or interviewer names). Generated for me.</p>
   </div>
 </main>
 <div id="modal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="mTitle">
@@ -253,7 +253,7 @@ const QUOTA = 20;
 /* inbound segment = same hue, darker */
 function toHex(c) { c = String(c).trim(); if (/^#[0-9a-f]{3}$/i.test(c)) c = "#" + [...c.slice(1)].map(x => x + x).join(""); if (/^#[0-9a-f]{6}$/i.test(c)) return c; const x = document.createElement("canvas").getContext("2d"); x.fillStyle = "#000"; x.fillStyle = c; return x.fillStyle; }
 function darker(hex, f = DARKEN_F) { const n = parseInt(toHex(hex).slice(1), 16); const c = [n >> 16, (n >> 8) & 255, n & 255].map(v => Math.round(v * f)); return "#" + c.map(v => v.toString(16).padStart(2, "0")).join(""); }
-const ORIGIN_NOTE = "Outbound = Elena’s own application (or an Apply-bot submit); Inbound = a recruiter or company reached her first.";
+const ORIGIN_NOTE = "Outbound = my own application (or an Apply-bot submit); Inbound = a recruiter or company reached me first.";
 const split = rs => { const inb = rs.filter(r => r.origin === "Inbound").length; return {out: rs.length - inb, inb}; };
 const splitStr = rs => { const x = split(rs); return `${fmt(x.out)} outbound / ${fmt(x.inb)} inbound`; };
 const $ = s => document.querySelector(s);
@@ -427,8 +427,8 @@ function statusSegments(roles) {
     const rs = roles.filter(r => r.status === s);
     let sub = "";
     if (s === "Target") sub = splitTxt([["Apply skips", rs.filter(r => r.blocked_reason).length], ["not yet attempted", rs.filter(r => !r.blocked_reason).length]]);
-    if (s === "Withdrawn" || s === "Skipped") sub = splitTxt([["by Elena", rs.filter(r => r.withdrawn_by === "Elena").length], ["Automated", rs.filter(r => r.withdrawn_by === "Automated").length], ["unrecorded", rs.filter(r => !r.withdrawn_by).length]]);
-    if (s === "Contact with next step") sub = splitTxt([["awaiting Elena", rs.filter(r => r.awaiting === "Elena").length], ["awaiting them", rs.filter(r => r.awaiting === "Them").length], ["unrecorded", rs.filter(r => !r.awaiting).length]]);
+    if (s === "Withdrawn" || s === "Skipped") sub = splitTxt([["by me", rs.filter(r => r.withdrawn_by === "Elena").length], ["Automated", rs.filter(r => r.withdrawn_by === "Automated").length], ["unrecorded", rs.filter(r => !r.withdrawn_by).length]]);
+    if (s === "Contact with next step") sub = splitTxt([["awaiting me", rs.filter(r => r.awaiting === "Elena").length], ["awaiting them", rs.filter(r => r.awaiting === "Them").length], ["unrecorded", rs.filter(r => !r.awaiting).length]]);
     if (s === "Rejected") sub = splitTxt([["with date applied", rs.filter(roleRejectedApplied).length], ["no date applied", rs.filter(r => !roleRejectedApplied(r)).length]]);
     const nRows = roles.reduce((n, r) => n + r.rows.filter(a => a.status === s).length, 0);
     const rowTxt = nRows !== rs.length ? `${fmt(nRows)} rows` : "";
@@ -442,11 +442,11 @@ function statusFromId(id) {
   return null;
 }
 const EXTRA_COLS = {
-  "Withdrawn": [{k:"withdrawn_by", h:"Withdrawn by", f:r => r.withdrawn_by ? `<span class="pill ${r.withdrawn_by === "Elena" ? "s2" : "s0"}">${esc(r.withdrawn_by)}</span>` : `<span class="muted">—</span>`},
+  "Withdrawn": [{k:"withdrawn_by", h:"Withdrawn by", f:r => r.withdrawn_by ? `<span class="pill ${r.withdrawn_by === "Elena" ? "s2" : "s0"}">${esc(r.withdrawn_by === "Elena" ? "Me" : r.withdrawn_by)}</span>` : `<span class="muted">—</span>`},
     {k:"withdrawn_reason", h:"Reason", cls:"reason", f:r => r.withdrawn_reason ? esc(r.withdrawn_reason) : `<span class="muted">—</span>`}],
-  "Skipped": [{k:"withdrawn_by", h:"Skipped by", f:r => r.withdrawn_by ? `<span class="pill ${r.withdrawn_by === "Elena" ? "s2" : "s0"}">${esc(r.withdrawn_by)}</span>` : `<span class="muted">—</span>`},
+  "Skipped": [{k:"withdrawn_by", h:"Skipped by", f:r => r.withdrawn_by ? `<span class="pill ${r.withdrawn_by === "Elena" ? "s2" : "s0"}">${esc(r.withdrawn_by === "Elena" ? "Me" : r.withdrawn_by)}</span>` : `<span class="muted">—</span>`},
     {k:"withdrawn_reason", h:"Skip reason", cls:"reason", f:r => r.withdrawn_reason ? esc(r.withdrawn_reason) : `<span class="muted">—</span>`}],
-  "Contact with next step": {k:"awaiting", h:"Awaiting", f:r => r.awaiting ? `<span class="pill ${r.awaiting === "Elena" ? "s3" : "s0"}">${esc(r.awaiting)}</span>` : `<span class="muted">—</span>`},
+  "Contact with next step": {k:"awaiting", h:"Awaiting", f:r => r.awaiting ? `<span class="pill ${r.awaiting === "Elena" ? "s3" : "s0"}">${esc(r.awaiting === "Elena" ? "Me" : r.awaiting)}</span>` : `<span class="muted">—</span>`},
   "Target": {k:"blocked_reason", h:"Apply skip reason", f:r => r.blocked_reason ? esc(r.blocked_reason) : `<span class="muted">—</span>`}
 };
 /* returns {title, kind:'roles'|'ints', rows, count, note, extra} */
@@ -485,7 +485,7 @@ function modalContent(id, roles) {
   return null;
 }
 /* ---------- role timeline ---------- */
-const DA_SRC = {email_confirmation: "application acknowledgement email", inbound_agreed: "when Elena agreed to proceed / was submitted", inbound_first_contact: "first contact (agreement not traceable in email)", manual: "tracker note (no acknowledgement email found)", import: "imported from the original Sheet"};
+const DA_SRC = {email_confirmation: "application acknowledgement email", inbound_agreed: "when I agreed to proceed / was submitted", inbound_first_contact: "first contact (agreement not traceable in email)", manual: "tracker note (no acknowledgement email found)", import: "imported from the original Sheet"};
 const KIND_LABEL = {application_confirmation: "application acknowledged", outreach: "outreach", reply: "reply", scheduling: "scheduling", interview: "interview logistics", assessment: "assessment", rejection: "rejection", offer: "offer", withdrawal: "withdrawal", follow_up: "follow-up", notification: "notification", other: "message"};
 function roleForApp(id) {
   const a = DATA.appById.get(id); if (!a) return null;
@@ -509,7 +509,7 @@ function timelineContent(id) {
   const li = items.map(i => {
     if (i.k === "ev") return `<li class="ev"><span class="when">${precise(i.e)}</span><span class="ic" aria-hidden="true">◆</span><span>Status → <span class="pill ${pillCls(i.e.to_status)}">${esc(i.e.to_status)}</span> <span class="meta">${esc(srcTxt[i.e.source] || i.e.source)}${multi ? ` · row ${i.a.id}` : ""}</span></span></li>`;
     if (i.k === "msg") { const m = i.m, icon = m.channel === "LinkedIn" ? "in" : "✉";
-      return `<li><span class="when">${fmtDT(m.occurred_at)}</span><span class="ic" aria-hidden="true">${icon}</span><span>${esc(m.channel)} ${m.direction === "Outbound" ? "sent by Elena" : "received"} · ${esc(KIND_LABEL[m.kind] || m.kind || "message")}${m.is_partial ? ` <span class="meta">(notification only)</span>` : ""}</span></li>`; }
+      return `<li><span class="when">${fmtDT(m.occurred_at)}</span><span class="ic" aria-hidden="true">${icon}</span><span>${esc(m.channel)} ${m.direction === "Outbound" ? "sent by me" : "received"} · ${esc(KIND_LABEL[m.kind] || m.kind || "message")}${m.is_partial ? ` <span class="meta">(notification only)</span>` : ""}</span></li>`; }
     const iv = i.iv;
     return `<li><span class="when">${iv.scheduled_at ? fmtDT(iv.scheduled_at) : fmtD(iv.interview_date)}</span><span class="ic" aria-hidden="true">☎</span><span>Interview ${(iv.type_tags || []).map(t => `<span class="pill">${esc(t)}</span>`).join(" ")} <span class="pill st-${esc(iv.state || "Completed")}">${esc(iv.state || "")}</span> <span class="pill oc-${esc(iv.outcome)}">${esc(iv.outcome)}</span></span></li>`;
   }).join("");
@@ -792,19 +792,19 @@ function renderDefs() {
   const d = [
     ["Unit: role", "Everything on this page except Data quality counts <b>roles</b>: rows with the same company and job title are merged into one role (company and title compared lower-case, without punctuation or parentheses, “Sr” = senior), so re-applying to the same job doesn’t double-count. A role takes the status of its most advanced row, its earliest date applied and its latest last-touch date; interview and contact counts are summed across its rows (×N next to a company shows how many rows were merged). Data quality counts raw rows."],
     ["Data source", "Live, read-only Supabase views (funnel_applications, funnel_interviews, funnel_status_counts, funnel_status_events, funnel_interactions) loaded in pages of 1,000 rows. The views omit notes, contact identities, interviewer names, interview titles and all message subjects and text."],
-    ["Interview tags", "<b>non-technical screen</b> = a call with a recruiter, talent or agency person (the Non-technical screen stage). <b>intro call</b> = a first call with someone at the company itself (founder, exec, hiring manager or engineer), which counts as Interviewing. <b>hiring manager</b> = a round with the hiring manager or the exec the role reports to. <b>take-home assessment</b> = an assignment or online test done on her own time, or the review of one (a HackerRank-style test can also carry technical: coding). The technical, culture, founder, final-round and onsite tags describe other rounds; a round can carry several tags."],
+    ["Interview tags", "<b>non-technical screen</b> = a call with a recruiter, talent or agency person (the Non-technical screen stage). <b>intro call</b> = a first call with someone at the company itself (founder, exec, hiring manager or engineer), which counts as Interviewing. <b>hiring manager</b> = a round with the hiring manager or the exec the role reports to. <b>take-home assessment</b> = an assignment or online test done on my own time, or the review of one (a HackerRank-style test can also carry technical: coding). The technical, culture, founder, final-round and onsite tags describe other rounds; a round can carry several tags."],
     ["Role timeline", "Click any company name to open the role’s timeline: every status change, email/LinkedIn message and interview, oldest first. Status changes were reconstructed on 11/8 from Gmail, LinkedIn messages logged by the LinkedIn bot, interview records and tracker notes; each says where it came from (≈ = approximate date). Changes made since are logged automatically when the tracker status changes."],
     ["Message activity", "One entry per email or LinkedIn message with a company or recruiter, in either direction, with its kind (outreach, reply, scheduling, rejection, …). “Notification only” means it came from a LinkedIn notification email that shows just part of the message. Contents are never published."],
     ["Interview schedule", "<b>Upcoming</b> = state Scheduled and dated today or later (or booked without a date). <b>Past</b> = everything else, including Cancelled and No-show. Times are ET; older interviews may only have a date."],
-    ["Date applied", "Outbound: the date of the application acknowledgement email (or the tracker note when no email exists). Inbound: the date Elena agreed to proceed or a recruiter submitted her; when that can’t be traced (often agreed on a call), the first-contact date. The role timeline says which applies."],
+    ["Date applied", "Outbound: the date of the application acknowledgement email (or the tracker note when no email exists). Inbound: the date I agreed to proceed or a recruiter submitted me; when that can’t be traced (often agreed on a call), the first-contact date. The role timeline says which applies."],
     ["Statuses (rules from the 11/2 validation pass)", "<b>Target</b>: not applied yet (Apply skips stay here with a blocked reason). <b>Applied</b>: an application acknowledgement was received. <b>Contact with next step</b>: a first-call request not yet answered, or a LinkedIn inbound. <b>Non-technical screen</b>: a booked first call with a recruiter. <b>Interviewing</b>: a first call with a founder, exec or engineer, or any later round. <b>Rejected</b>: a rejection email was received. <b>Withdrawn</b>: closed without a rejection after it was applied to or a recruiter was engaged. <b>Skipped</b>: an outbound role that was never submitted (posting closed, pay under floor, location, duplicate, etc.). <b>Ghosted</b>: no reply. Offer / Offer Accepted as named."],
     ["Non-technical screen", "Count comes from the tracker status."],
-    ["Reason (Withdrawn / Skipped lists)", "A short summary of why a Withdrawn or Skipped role was closed, derived privately from the tracker notes (latest Apply skip reason, validation note or Elena’s own note) with names, emails, links and phone numbers removed. “—” = no reason found."],
-    ["Withdrawn by / Skipped by", "Set only on Withdrawn and Skipped roles: <b>Elena</b> (she withdrew) or <b>Automated</b> (closed automatically, not by Elena)."],
-    ["Awaiting", "On Contact with next step roles: whose move it is, <b>Elena</b> or <b>Them</b>."],
+    ["Reason (Withdrawn / Skipped lists)", "A short summary of why a Withdrawn or Skipped role was closed, derived privately from the tracker notes (latest Apply skip reason, validation note or my own note) with names, emails, links and phone numbers removed. “—” = no reason found."],
+    ["Withdrawn by / Skipped by", "Set only on Withdrawn and Skipped roles: <b>Me</b> (I withdrew) or <b>Automated</b> (closed automatically, not by me)."],
+    ["Awaiting", "On Contact with next step roles: whose move it is, <b>Me</b> or <b>Them</b>."],
     ["Click-through lists", "Click any funnel bar, status bar or headline card to see the roles behind that number (sortable, searchable; Esc, × or a click outside closes it). In Current status mode a status list shows <b>only</b> roles whose current status is exactly that status; in Funnel (reached) mode it lists the roles that reached the stage. Either way the count equals the bar. Lists include an Origin column. “Interviews logged” on the headline, and the Interview schedule section, list individual interviews. The open list is saved in the link."],
     ["Funnel (reached) mode", "Toggle on the funnel chart; saved in the link. Each bar = roles that reached that stage or any later stage; clicking a bar lists exactly those roles with their current status. Stage order: Applied → Contact with next step → Non-technical screen → Interviewing → Offer → Offer Accepted. A role reaches its current active stage; Rejected / Withdrawn / Ghosted roles are placed by evidence (a logged technical, culture-fit, founder, final-round or onsite interview → Interviewing; any other logged interview → Non-technical screen; otherwise a date applied → Applied). Step % = this bar ÷ previous bar. In Current status mode (the default) each role counts once at its current status."],
-    ["Origin: outbound vs. inbound", "<b>Outbound</b> = Elena’s own application or an Apply-bot submit; <b>Inbound</b> = a recruiter or company LinkedIn message or email reached her first. Per tracker row: a linked recruiter/company contact with no date applied, or whose first touch is before the date applied → Inbound; no linked contact but notes record recruiter outreach (InMail, outreach, LinkedIn message, recruiter email, pitch, Paraform submit) and no own application → Inbound; everything else (own applications, Apply submits, scraped / Target rows) → Outbound. A merged role takes the origin of its row with the earliest known touch. A LinkedIn connection request alone never counts as inbound. Gmail only shows the other side of LinkedIn threads, so a recruiter reply seen in Gmail is not taken as “they wrote first”; the contact’s first-touch date is what is compared. <b>Ambiguous</b> (marked “?” in lists): a contact whose first touch is on/after the date applied or undated → Outbound if the notes show her own application, else Inbound; or no contact and notes show both → Outbound. Derived server-side; no notes or contact details are exposed."],
+    ["Origin: outbound vs. inbound", "<b>Outbound</b> = my own application or an Apply-bot submit; <b>Inbound</b> = a recruiter or company LinkedIn message or email reached me first. Per tracker row: a linked recruiter/company contact with no date applied, or whose first touch is before the date applied → Inbound; no linked contact but notes record recruiter outreach (InMail, outreach, LinkedIn message, recruiter email, pitch, Paraform submit) and no own application → Inbound; everything else (own applications, Apply submits, scraped / Target rows) → Outbound. A merged role takes the origin of its row with the earliest known touch. A LinkedIn connection request alone never counts as inbound. Gmail only shows the other side of LinkedIn threads, so a recruiter reply seen in Gmail is not taken as “they wrote first”; the contact’s first-touch date is what is compared. <b>Ambiguous</b> (marked “?” in lists): a contact whose first touch is on/after the date applied or undated → Outbound if the notes show my own application, else Inbound; or no contact and notes show both → Outbound. Derived server-side; no notes or contact details are exposed."],
     ["Apply skips", "Roles the Apply bot skipped stay at Target with a blocked_reason (e.g. Greenhouse self-apply, account needed, awaiting OK); the Target list shows the reason."],
     ["Date filter", "Applies to date applied or date added (your choice); rows without that date are excluded while a date range is set."],
     ["Quota", "20 applications per day (140 per week), drawn as a dashed line."],
