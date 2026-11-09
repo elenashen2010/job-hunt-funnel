@@ -152,7 +152,7 @@ body.modal-open{overflow:hidden}
 
   <section class="card noprint-keep" id="filtersCard">
     <h2>Filters</h2>
-    <p class="sub">Apply to every section below (except the Sheet snapshot, which is a fixed build-time snapshot). Filters are saved in the link (URL hash), so a shared link reproduces this view.</p>
+    <p class="sub">Apply to every section below. Filters are saved in the link (URL hash), so a shared link reproduces this view.</p>
     <div class="filters">
       <label>Date field
         <select id="f_df"><option value="applied">Date applied</option><option value="added">Date added</option></select></label>
@@ -211,11 +211,6 @@ body.modal-open{overflow:hidden}
     <div id="qaLists"></div>
   </section>
 
-  <section class="card" id="sheetCard">
-    <h2>Sheet vs Supabase — snapshot from before the 11/2 validation pass</h2>
-    <div class="note"><b>Historical, not current.</b> Both columns below are from <span id="snapTime"></span>, before the 11/2 status validation pass (which changed 93 statuses in Supabase). They show how the Sheet migrated into Supabase at that time, not today’s statuses. Today’s live Supabase counts are in the Status breakdown above; the live column here is for reference only.</div>
-    <div id="sheetCmp"></div>
-  </section>
 
   <section class="card">
     <h2>Definitions</h2>
@@ -235,7 +230,7 @@ body.modal-open{overflow:hidden}
 <script>
 "use strict";
 const CFG = {"url": "https://bvdgctimitfkvhfhgsyy.supabase.co", "key": "sb_publishable_eArt8XO4PX0vWZkngx5DQQ_9XWtHOmw"};
-const SHEET = {"taken_at": "2026-11-02 12:50 ET", "spreadsheet_id": "1HD3BuAB2yVbjwTCl76uhoTpNEELRMOzjrOpSJUz6oyA", "tab": "Untitled", "nonblank_rows": 782, "repeated_header_rows": 5, "stray_rows": 1, "data_rows": 776, "with_date_applied": 261, "status_counts": {"Applied": 209, "On hold": 193, "Target": 144, "Rejected": 114, "Phone screen": 71, "Withdrawn": 14, "Interview": 12, "Parking": 10, "Closed": 5, "Parked": 3, "Submitted (agency)": 1}, "mapping": {"Target": "Target", "Applied": "Applied", "Phone screen": "Non-technical screen", "Interview": "Interviewing", "Rejected": "Rejected", "Withdrawn": "Withdrawn"}, "unmapped": ["On hold", "Parking", "Parked", "Closed", "Submitted (agency)"], "crosstab": [["Applied", "Applied", 209], ["On hold", "Target", 158], ["Target", "Target", 144], ["Rejected", "Rejected", 114], ["Phone screen", "Non-technical screen", 71], ["On hold", "Withdrawn", 35], ["Withdrawn", "Withdrawn", 14], ["Interview", "Interviewing", 12], ["Parking", "Target", 10], ["Closed", "Withdrawn", 3], ["Parked", "Target", 3], ["Closed", "Rejected", 2], ["Submitted (agency)", "Applied", 1]], "rows_matched_by_sheet_row": 776, "date_applied_mismatches": 0, "supabase_total_at_snapshot": 776};
+const SHEET = null;
 const STAGES = ["Applied","Contact with next step","Non-technical screen","Interviewing","Offer","Offer Accepted"];
 // Colors come from the CSS variables in :root (top of <style>); refreshed on every render.
 const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -776,6 +771,7 @@ function renderQA(rows) {
     list("Blank role family", blankRF, r1);
 }
 function renderSheet() {
+  if (!document.getElementById("sheetCmp")) return;
   if (!SHEET) { $("#sheetCmp").innerHTML = "<p class='muted'>No snapshot embedded.</p>"; return; }
   $("#snapTime").textContent = SHEET.taken_at;
   const live = {}; DATA.statusCounts.forEach(r => live[r.status] = r.n_applications);
@@ -794,7 +790,7 @@ function renderSheet() {
 }
 function renderDefs() {
   const d = [
-    ["Unit: role", "Everything on this page except Data quality and Sheet vs Supabase counts <b>roles</b>: rows with the same company and job title are merged into one role (company and title compared lower-case, without punctuation or parentheses, “Sr” = senior), so re-applying to the same job doesn’t double-count. A role takes the status of its most advanced row, its earliest date applied and its latest last-touch date; interview and contact counts are summed across its rows (×N next to a company shows how many rows were merged). Data quality and the Sheet comparison count raw rows."],
+    ["Unit: role", "Everything on this page except Data quality counts <b>roles</b>: rows with the same company and job title are merged into one role (company and title compared lower-case, without punctuation or parentheses, “Sr” = senior), so re-applying to the same job doesn’t double-count. A role takes the status of its most advanced row, its earliest date applied and its latest last-touch date; interview and contact counts are summed across its rows (×N next to a company shows how many rows were merged). Data quality counts raw rows."],
     ["Data source", "Live, read-only Supabase views (funnel_applications, funnel_interviews, funnel_status_counts, funnel_status_events, funnel_interactions) loaded in pages of 1,000 rows. The views omit notes, contact identities, interviewer names, interview titles and all message subjects and text."],
     ["Interview tags", "<b>non-technical screen</b> = a call with a recruiter, talent or agency person (the Non-technical screen stage). <b>intro call</b> = a first call with someone at the company itself (founder, exec, hiring manager or engineer), which counts as Interviewing. <b>hiring manager</b> = a round with the hiring manager or the exec the role reports to. <b>take-home assessment</b> = an assignment or online test done on her own time, or the review of one (a HackerRank-style test can also carry technical: coding). The technical, culture, founder, final-round and onsite tags describe other rounds; a round can carry several tags."],
     ["Role timeline", "Click any company name to open the role’s timeline: every status change, email/LinkedIn message and interview, oldest first. Status changes were reconstructed on 11/8 from Gmail, LinkedIn messages logged by the LinkedIn bot, interview records and tracker notes; each says where it came from (≈ = approximate date). Changes made since are logged automatically when the tracker status changes."],
