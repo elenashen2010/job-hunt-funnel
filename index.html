@@ -182,17 +182,22 @@ body.modal-open{overflow:hidden}
   </section>
 
   <div class="grid g2">
-    <section class="card"><h2>Daily applications</h2><p class="sub">Roles by (earliest) date applied, from September 2026. Dashed line = 20/day quota.</p><div id="chDaily"></div></section>
-    <section class="card"><h2>Weekly applications</h2><p class="sub">Roles by (earliest) date applied, weeks start Monday, from the week of September 2026. Dashed line = 140/week (20 × 7).</p><div id="chWeekly"></div></section>
+    <section class="card" id="appliedCard">
+      <div class="toolbar" style="justify-content:space-between">
+        <div><h2 id="appliedTitle">Daily applications</h2>
+        <p class="sub" style="margin:0" id="appliedSub"></p></div>
+        <div class="seg noprint" role="group" aria-label="Applications view"><button type="button" data-aw="">Daily</button><button type="button" data-aw="weekly">Weekly</button></div>
+      </div>
+      <div id="chApplied"></div>
+    </section>
+    <section class="card">
+      <h2>Weekly contact with next step</h2>
+      <p class="sub">Roles whose status first became Contact with next step in that Monday–Sunday week (ET), from the week of September 2026. A role counts once, in the week of its earliest status event. Light segment = outbound, dark segment = inbound. Click a bar for the list.</p>
+      <div id="chWeeklyContact"></div>
+    </section>
     <section class="card"><h2>Status breakdown</h2><p class="sub">Current status of every role in the filter. Click any bar for exactly the roles at that status. Grey text shows splits within a status (Withdrawn by me vs. Automated, Contact awaiting me vs. Them, Target Apply skips).</p><div id="chStatus"></div></section>
     <section class="card"><h2>Interviews</h2><p class="sub">From the interviews table, for applications in the filter. Interviews by type tag (an interview can carry several tags) and by outcome.</p><div id="chInt"></div></section>
   </div>
-
-  <section class="card">
-    <h2>Weekly contact with next step</h2>
-    <p class="sub">Roles whose status first became Contact with next step in that Monday–Sunday week (ET), from the week of September 2026. A role counts once, in the week of its earliest status event. Light segment = outbound, dark segment = inbound. Click a bar for the list.</p>
-    <div id="chWeeklyContact"></div>
-  </section>
 
   <section class="card" id="ivCard">
     <div class="toolbar" style="justify-content:space-between">
@@ -255,7 +260,8 @@ const ACTIVE = ["Contact with next step","Non-technical screen","Interviewing"];
 const TERMINAL = new Set(["Rejected","Withdrawn","Skipped","Ghosted"]);
 const SUBSTANTIVE_TAGS = new Set(["technical: debugging","technical: coding","technical: system design","culture fit","founder","final round","onsite","intro call","hiring manager","take-home assessment"]);
 // COLORS: set by loadPalette() from CSS variables
-const QUOTA = 20;
+const QUOTA = 20; // daily applications goal
+const QUOTA_WEEK = QUOTA * 7; // weekly goal = daily × 7 calendar days (Mon–Sun)
 /* Inclusive lower bound for time-axis charts. The job hunt starts in September.
    Weekly charts begin at the Monday of this week (2026-08-31 for this value).
    Change this one constant to move the bound; pre-start dates stay in the data. */
@@ -273,8 +279,8 @@ const pct = (a,b) => b ? (100*a/b).toFixed(a/b < .1 ? 1 : 0) + "%" : "—";
 const todayET = () => new Date().toLocaleDateString("en-CA", {timeZone:"America/New_York"});
 
 let DATA = null;
-const HASH_KEYS = ["df","from","to","src","rf","wp","q","m","fm","iv"];
-const state = {df:"applied", from:"", to:"", src:"", rf:"", wp:"", q:"", m:"", fm:"", iv:"", sortK:"last_touch_date", sortDir:-1};
+const HASH_KEYS = ["df","from","to","src","rf","wp","q","m","fm","iv","aw"];
+const state = {df:"applied", from:"", to:"", src:"", rf:"", wp:"", q:"", m:"", fm:"", iv:"", aw:"", sortK:"last_touch_date", sortDir:-1};
 let modalBack = "", modalBack_sort = null;
 const modalSort = {k:null, dir:1, q:""};
 
@@ -389,6 +395,7 @@ function readHash() {
   if (!["applied","added"].includes(state.df)) state.df = "applied";
   if (state.fm !== "reached") state.fm = "";
   if (!["past","all"].includes(state.iv)) state.iv = "";
+  if (state.aw !== "weekly") state.aw = "";
 }
 function writeHash() {
   const p = new URLSearchParams();
@@ -553,7 +560,7 @@ function render() {
   if (state.from || state.to) parts.push(`${state.df === "added" ? "Date added" : "Date applied"} ${state.from || "…"} → ${state.to || "…"} (rows without that date are excluded)`);
   for (const [id,k,n] of [["#f_src","src","Source"],["#f_rf","rf","Role family"],["#f_wp","wp","Workplace"]]) if (state[k]) parts.push(`${n}: ${lab(id)}`);
   $("#filterSummary").innerHTML = `Showing <b>${fmt(roles.length)}</b> roles (${fmt(rows.length)} of ${fmt(DATA.apps.length)} rows)` + (parts.length ? ` · ${esc(parts.join(" · "))}` : " · no filters");
-  renderKpis(roles); renderFunnel(roles); renderDaily(roles); renderWeekly(roles); renderWeeklyContact(roles); renderStatus(roles); renderInterviews(roles); renderIvSchedule(roles); renderPipeline(roles); renderQA(rows); renderSheet(); renderDefs();
+  renderKpis(roles); renderFunnel(roles); renderApplied(roles); renderWeeklyContact(roles); renderStatus(roles); renderInterviews(roles); renderIvSchedule(roles); renderPipeline(roles); renderQA(rows); renderSheet(); renderDefs();
   if (!$("#modal").hidden) renderModal();
 }
 function renderKpis(roles) {
@@ -637,19 +644,29 @@ function dateSpan(roles) {
   if (hi < lo) return null;
   return [lo, hi];
 }
-function renderDaily(roles) {
-  const span = dateSpan(roles); if (!span) return barChart($("#chDaily"), []);
+function renderDaily(roles, el) {
+  const span = dateSpan(roles); if (!span) return barChart(el, []);
   const c = {}; roles.forEach(r => { if (r.date_applied) c[r.date_applied] = (c[r.date_applied] || 0) + 1; });
   const items = []; for (let d = span[0]; d <= span[1]; d = addDays(d, 1)) items.push({label: d, short: d.slice(5), v: c[d] || 0, c: (c[d]||0) >= QUOTA ? "#12b886" : "#4c6ef5"});
-  barChart($("#chDaily"), items, {quota: QUOTA, labelEvery: Math.ceil(items.length / 10), yLabel: "/day"});
+  barChart(el, items, {quota: QUOTA, labelEvery: Math.ceil(items.length / 10), yLabel: "/day"});
   const hit = items.filter(i => i.v >= QUOTA).length;
-  $("#chDaily").insertAdjacentHTML("beforeend", `<div class="legend"><span><i style="background:#12b886"></i>met quota</span><span><i style="background:#4c6ef5"></i>below quota</span><span>${hit} of ${items.length} days at ≥ ${QUOTA}</span></div>`);
+  el.insertAdjacentHTML("beforeend", `<div class="legend"><span><i style="background:#12b886"></i>met quota</span><span><i style="background:#4c6ef5"></i>below quota</span><span>${hit} of ${items.length} days at ≥ ${QUOTA}</span></div>`);
 }
-function renderWeekly(roles) {
-  const span = dateSpan(roles); if (!span) return barChart($("#chWeekly"), []);
+function renderWeekly(roles, el) {
+  const span = dateSpan(roles); if (!span) return barChart(el, []);
   const c = {}; roles.forEach(r => { if (r.date_applied) { const w = monday(r.date_applied); c[w] = (c[w] || 0) + 1; } });
   const items = []; for (let w = monday(span[0]); w <= span[1]; w = addDays(w, 7)) items.push({label: "Week of " + w, short: w.slice(5), v: c[w] || 0});
-  barChart($("#chWeekly"), items, {quota: QUOTA * 7, color: "#3b5bdb", yLabel: "/wk"});
+  barChart(el, items, {quota: QUOTA_WEEK, color: "#3b5bdb", yLabel: "/wk"});
+}
+function renderApplied(roles) {
+  const weekly = state.aw === "weekly";
+  document.querySelectorAll("#appliedCard [data-aw]").forEach(b => b.classList.toggle("on", b.dataset.aw === state.aw));
+  $("#appliedTitle").textContent = weekly ? "Weekly applications" : "Daily applications";
+  $("#appliedSub").textContent = weekly
+    ? `Roles by (earliest) date applied, weeks start Monday, from the week of September 2026. Dashed line = ${QUOTA_WEEK}/week (${QUOTA} × 7).`
+    : `Roles by (earliest) date applied, from September 2026. Dashed line = ${QUOTA}/day quota.`;
+  const el = $("#chApplied");
+  if (weekly) renderWeekly(roles, el); else renderDaily(roles, el);
 }
 const etDay = ts => new Date(ts).toLocaleDateString("en-CA", {timeZone:"America/New_York"});
 function firstContactAt(role) {
@@ -887,7 +904,7 @@ function renderDefs() {
     ["Weekly contact with next step", "Each bar is the number of roles that first entered status Contact with next step in that Monday–Sunday week (America/New_York). A role counts once, in the week of its earliest status event (a later return to this status is ignored). Roles that have since moved on still count in the week they first reached it. Light segment = outbound, dark segment = inbound. Click a bar for the list, which includes the date first reached and the current status. The chart uses the same filters as the rest of the page. The axis starts at the week containing 1 September 2026 (or the first later week with data); earlier first-reached dates are omitted from the chart but not removed from the tracker."],
     ["Date filter", "Applies to date applied or date added (your choice); rows without that date are excluded while a date range is set."],
     ["Chart date range", "Time-axis charts (daily applications, weekly applications, weekly contact with next step) do not extend before 1 September 2026, or before the Monday of that week for weekly charts, because the job hunt starts in September. The bound is a single start-date constant near the top of this page’s script. Filters can narrow the range further; they cannot stretch it earlier."],
-    ["Quota", "20 applications per day (140 per week), drawn as a dashed line."],
+    ["Quota", `${QUOTA} applications per day (${QUOTA_WEEK} per week = ${QUOTA} × 7 calendar days), drawn as a dashed line.`],
     ["Data as of", "The time this page fetched the data, in America/New_York (ET). Press Refresh to reload."]
   ];
   $("#defs").innerHTML = d.map(([t, x]) => `<dt>${esc(t)}</dt><dd>${x}</dd>`).join("");
@@ -918,6 +935,7 @@ function bind() {
   $("#mTable").addEventListener("click", e => { const th = e.target.closest("th.sort"); if (!th) return; const k = th.dataset.k; modalSort.dir = modalSort.k === k ? -modalSort.dir : defaultDir(k); modalSort.k = k; renderModal(); });
   $("#refresh").addEventListener("click", load);
   document.querySelectorAll("#funnelCard [data-fm]").forEach(b => b.addEventListener("click", () => { state.fm = b.dataset.fm; if (state.m && (state.m.startsWith("reached:") || state.m.startsWith("stage:"))) closeModal(); render(); }));
+  document.querySelectorAll("#appliedCard [data-aw]").forEach(b => b.addEventListener("click", () => { state.aw = b.dataset.aw; writeHash(); renderApplied(filteredRoles()); }));
   $("#copylink").addEventListener("click", async () => { writeHash(); try { await navigator.clipboard.writeText(location.href); $("#copylink").textContent = "✓ Link copied"; } catch (e) { prompt("Copy this link:", location.href); } setTimeout(() => $("#copylink").textContent = "🔗 Copy link to this view", 1800); });
   window.addEventListener("hashchange", () => {
     const prevM = state.m; readHash(); if (!DATA) return; syncControls(); render();
