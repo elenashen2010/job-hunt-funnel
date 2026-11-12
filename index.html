@@ -692,7 +692,6 @@ function renderWeeklyContact(roles) {
   const el = $("#chWeeklyContact"), entries = contactEntries(roles);
   const bound = monday(HUNT_START);
   const shown = entries.filter(r => monday(r.contact_at) >= bound);
-  const omitted = entries.length - shown.length;
   if (!shown.length) return vStackChart(el, []);
   const days = shown.map(r => r.contact_at).sort();
   const start = monday(days[0]), end = todayET() > days[days.length - 1] ? todayET() : days[days.length - 1];
@@ -705,8 +704,7 @@ function renderWeeklyContact(roles) {
     items.push({label: "Week of " + w, short: w.slice(5), v: rs.length, out, inb, c: color, modal: rs.length ? "cns:" + w : ""});
   }
   vStackChart(el, items, {color, labelEvery: Math.max(1, Math.ceil(items.length / 16)), aria: "Weekly new contact with next step"});
-  const omitNote = omitted ? `<span>${fmt(omitted)} role${omitted === 1 ? "" : "s"} first reached this status before ${esc(HUNT_START)} and ${omitted === 1 ? "is" : "are"} omitted from the chart</span>` : "";
-  el.insertAdjacentHTML("beforeend", `<div class="legend"><span><i style="background:${color}"></i>Outbound</span><span><i style="background:${darker(color)}"></i>Inbound</span><span>${fmt(shown.length)} roles reached this status (${esc(splitStr(shown))})</span>${omitNote}</div>`);
+  el.insertAdjacentHTML("beforeend", `<div class="legend"><span><i style="background:${color}"></i>Outbound</span><span><i style="background:${darker(color)}"></i>Inbound</span><span>${fmt(shown.length)} roles reached this status (${esc(splitStr(shown))})</span></div>`);
 }
 function renderStatus(roles) {
   hbar($("#chStatus"), statusSegments(roles).map(s => { const x = split(s.roles); return {label: s.label, v: s.roles.length, inb: x.inb, c: s.c, modal: s.id, sub: [`${fmt(x.out)} out / ${fmt(x.inb)} in`, s.bar].filter(Boolean).join(" · ")}; }));
