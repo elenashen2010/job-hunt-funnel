@@ -182,15 +182,15 @@ body.modal-open{overflow:hidden}
   </section>
 
   <div class="grid g2">
-    <section class="card"><h2>Daily applications</h2><p class="sub">Roles by (earliest) date applied. Dashed line = 20/day quota.</p><div id="chDaily"></div></section>
-    <section class="card"><h2>Weekly applications</h2><p class="sub">Roles by (earliest) date applied, weeks start Monday. Dashed line = 140/week (20 × 7).</p><div id="chWeekly"></div></section>
+    <section class="card"><h2>Daily applications</h2><p class="sub">Roles by (earliest) date applied, from September 2026. Dashed line = 20/day quota.</p><div id="chDaily"></div></section>
+    <section class="card"><h2>Weekly applications</h2><p class="sub">Roles by (earliest) date applied, weeks start Monday, from the week of September 2026. Dashed line = 140/week (20 × 7).</p><div id="chWeekly"></div></section>
     <section class="card"><h2>Status breakdown</h2><p class="sub">Current status of every role in the filter. Click any bar for exactly the roles at that status. Grey text shows splits within a status (Withdrawn by me vs. Automated, Contact awaiting me vs. Them, Target Apply skips).</p><div id="chStatus"></div></section>
     <section class="card"><h2>Interviews</h2><p class="sub">From the interviews table, for applications in the filter. Interviews by type tag (an interview can carry several tags) and by outcome.</p><div id="chInt"></div></section>
   </div>
 
   <section class="card">
     <h2>Weekly contact with next step</h2>
-    <p class="sub">Roles whose status first became Contact with next step in that Monday–Sunday week (ET). A role counts once, in the week of its earliest status event. Light segment = outbound, dark segment = inbound. Click a bar for the list.</p>
+    <p class="sub">Roles whose status first became Contact with next step in that Monday–Sunday week (ET), from the week of September 2026. A role counts once, in the week of its earliest status event. Light segment = outbound, dark segment = inbound. Click a bar for the list.</p>
     <div id="chWeeklyContact"></div>
   </section>
 
@@ -256,6 +256,10 @@ const TERMINAL = new Set(["Rejected","Withdrawn","Skipped","Ghosted"]);
 const SUBSTANTIVE_TAGS = new Set(["technical: debugging","technical: coding","technical: system design","culture fit","founder","final round","onsite","intro call","hiring manager","take-home assessment"]);
 // COLORS: set by loadPalette() from CSS variables
 const QUOTA = 20;
+/* Inclusive lower bound for time-axis charts. The job hunt starts in September.
+   Weekly charts begin at the Monday of this week (2026-08-31 for this value).
+   Change this one constant to move the bound; pre-start dates stay in the data. */
+const HUNT_START = "2026-09-01";
 /* inbound segment = same hue, darker */
 function toHex(c) { c = String(c).trim(); if (/^#[0-9a-f]{3}$/i.test(c)) c = "#" + [...c.slice(1)].map(x => x + x).join(""); if (/^#[0-9a-f]{6}$/i.test(c)) return c; const x = document.createElement("canvas").getContext("2d"); x.fillStyle = "#000"; x.fillStyle = c; return x.fillStyle; }
 function darker(hex, f = DARKEN_F) { const n = parseInt(toHex(hex).slice(1), 16); const c = [n >> 16, (n >> 8) & 255, n & 255].map(v => Math.round(v * f)); return "#" + c.map(v => v.toString(16).padStart(2, "0")).join(""); }
@@ -623,10 +627,15 @@ function hbar(el, items) {
   el.innerHTML = s + `</svg>`;
 }
 const addDays = (d, n) => { const t = new Date(d + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+function monday(d) { const t = new Date(d + "T00:00:00Z"); const wd = (t.getUTCDay() + 6) % 7; return addDays(d, -wd); }
 function dateSpan(roles) {
   const ds = roles.map(r => r.date_applied).filter(Boolean).sort();
   if (!ds.length) return null;
-  return [state.df === "applied" && state.from && state.from > ds[0] ? state.from : ds[0], state.df === "applied" && state.to && state.to < ds[ds.length-1] ? state.to : ds[ds.length-1]];
+  let lo = state.df === "applied" && state.from && state.from > ds[0] ? state.from : ds[0];
+  let hi = state.df === "applied" && state.to && state.to < ds[ds.length-1] ? state.to : ds[ds.length-1];
+  if (lo < HUNT_START) lo = HUNT_START;
+  if (hi < lo) return null;
+  return [lo, hi];
 }
 function renderDaily(roles) {
   const span = dateSpan(roles); if (!span) return barChart($("#chDaily"), []);
@@ -636,7 +645,6 @@ function renderDaily(roles) {
   const hit = items.filter(i => i.v >= QUOTA).length;
   $("#chDaily").insertAdjacentHTML("beforeend", `<div class="legend"><span><i style="background:#12b886"></i>met quota</span><span><i style="background:#4c6ef5"></i>below quota</span><span>${hit} of ${items.length} days at ≥ ${QUOTA}</span></div>`);
 }
-function monday(d) { const t = new Date(d + "T00:00:00Z"); const wd = (t.getUTCDay() + 6) % 7; return addDays(d, -wd); }
 function renderWeekly(roles) {
   const span = dateSpan(roles); if (!span) return barChart($("#chWeekly"), []);
   const c = {}; roles.forEach(r => { if (r.date_applied) { const w = monday(r.date_applied); c[w] = (c[w] || 0) + 1; } });
@@ -682,11 +690,14 @@ function vStackChart(el, items, {color="#7950f2", h=220, labelEvery=1, aria=""} 
 }
 function renderWeeklyContact(roles) {
   const el = $("#chWeeklyContact"), entries = contactEntries(roles);
-  if (!entries.length) return vStackChart(el, []);
-  const days = entries.map(r => r.contact_at).sort();
+  const bound = monday(HUNT_START);
+  const shown = entries.filter(r => monday(r.contact_at) >= bound);
+  const omitted = entries.length - shown.length;
+  if (!shown.length) return vStackChart(el, []);
+  const days = shown.map(r => r.contact_at).sort();
   const start = monday(days[0]), end = todayET() > days[days.length - 1] ? todayET() : days[days.length - 1];
   const by = {};
-  for (const r of entries) { const w = monday(r.contact_at); (by[w] || (by[w] = [])).push(r); }
+  for (const r of shown) { const w = monday(r.contact_at); (by[w] || (by[w] = [])).push(r); }
   const color = COLORS["Contact with next step"];
   const items = [];
   for (let w = start; w <= end; w = addDays(w, 7)) {
@@ -694,7 +705,8 @@ function renderWeeklyContact(roles) {
     items.push({label: "Week of " + w, short: w.slice(5), v: rs.length, out, inb, c: color, modal: rs.length ? "cns:" + w : ""});
   }
   vStackChart(el, items, {color, labelEvery: Math.max(1, Math.ceil(items.length / 16)), aria: "Weekly new contact with next step"});
-  el.insertAdjacentHTML("beforeend", `<div class="legend"><span><i style="background:${color}"></i>Outbound</span><span><i style="background:${darker(color)}"></i>Inbound</span><span>${fmt(entries.length)} roles reached this status (${esc(splitStr(entries))})</span></div>`);
+  const omitNote = omitted ? `<span>${fmt(omitted)} role${omitted === 1 ? "" : "s"} first reached this status before ${esc(HUNT_START)} and ${omitted === 1 ? "is" : "are"} omitted from the chart</span>` : "";
+  el.insertAdjacentHTML("beforeend", `<div class="legend"><span><i style="background:${color}"></i>Outbound</span><span><i style="background:${darker(color)}"></i>Inbound</span><span>${fmt(shown.length)} roles reached this status (${esc(splitStr(shown))})</span>${omitNote}</div>`);
 }
 function renderStatus(roles) {
   hbar($("#chStatus"), statusSegments(roles).map(s => { const x = split(s.roles); return {label: s.label, v: s.roles.length, inb: x.inb, c: s.c, modal: s.id, sub: [`${fmt(x.out)} out / ${fmt(x.inb)} in`, s.bar].filter(Boolean).join(" · ")}; }));
@@ -874,8 +886,9 @@ function renderDefs() {
     ["Funnel (reached) mode", "Toggle on the funnel chart; saved in the link. Each bar = roles that reached that stage or any later stage; clicking a bar lists exactly those roles with their current status. Stage order: Applied → Contact with next step → Non-technical screen → Interviewing → Offer → Offer Accepted. A role reaches its current active stage; Rejected / Withdrawn / Ghosted roles are placed by evidence (a logged technical, culture-fit, founder, final-round or onsite interview → Interviewing; any other logged interview → Non-technical screen; otherwise a date applied → Applied). Step % = this bar ÷ previous bar. In Current status mode (the default) each role counts once at its current status."],
     ["Origin: outbound vs. inbound", "<b>Outbound</b> = my own application or an Apply-bot submit; <b>Inbound</b> = a recruiter or company LinkedIn message or email reached me first. Per tracker row: a linked recruiter/company contact with no date applied, or whose first touch is before the date applied → Inbound; no linked contact but notes record recruiter outreach (InMail, outreach, LinkedIn message, recruiter email, pitch, Paraform submit) and no own application → Inbound; everything else (own applications, Apply submits, scraped / Target rows) → Outbound. A merged role takes the origin of its row with the earliest known touch. A LinkedIn connection request alone never counts as inbound. Gmail only shows the other side of LinkedIn threads, so a recruiter reply seen in Gmail is not taken as “they wrote first”; the contact’s first-touch date is what is compared. <b>Ambiguous</b> (marked “?” in lists): a contact whose first touch is on/after the date applied or undated → Outbound if the notes show my own application, else Inbound; or no contact and notes show both → Outbound. Derived server-side; no notes or contact details are exposed."],
     ["Apply skips", "Roles the Apply bot skipped stay at Target with a blocked_reason (e.g. Greenhouse self-apply, account needed, awaiting OK); the Target list shows the reason."],
-    ["Weekly contact with next step", "Each bar is the number of roles that first entered status Contact with next step in that Monday–Sunday week (America/New_York). A role counts once, in the week of its earliest status event (a later return to this status is ignored). Roles that have since moved on still count in the week they first reached it. Light segment = outbound, dark segment = inbound. Click a bar for the list, which includes the date first reached and the current status. The chart uses the same filters as the rest of the page."],
+    ["Weekly contact with next step", "Each bar is the number of roles that first entered status Contact with next step in that Monday–Sunday week (America/New_York). A role counts once, in the week of its earliest status event (a later return to this status is ignored). Roles that have since moved on still count in the week they first reached it. Light segment = outbound, dark segment = inbound. Click a bar for the list, which includes the date first reached and the current status. The chart uses the same filters as the rest of the page. The axis starts at the week containing 1 September 2026 (or the first later week with data); earlier first-reached dates are omitted from the chart but not removed from the tracker."],
     ["Date filter", "Applies to date applied or date added (your choice); rows without that date are excluded while a date range is set."],
+    ["Chart date range", "Time-axis charts (daily applications, weekly applications, weekly contact with next step) do not extend before 1 September 2026, or before the Monday of that week for weekly charts, because the job hunt starts in September. The bound is a single start-date constant near the top of this page’s script. Filters can narrow the range further; they cannot stretch it earlier."],
     ["Quota", "20 applications per day (140 per week), drawn as a dashed line."],
     ["Data as of", "The time this page fetched the data, in America/New_York (ET). Press Refresh to reload."]
   ];
