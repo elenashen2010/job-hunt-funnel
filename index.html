@@ -188,6 +188,12 @@ body.modal-open{overflow:hidden}
     <section class="card"><h2>Interviews</h2><p class="sub">From the interviews table, for applications in the filter. Interviews by type tag (an interview can carry several tags) and by outcome.</p><div id="chInt"></div></section>
   </div>
 
+  <section class="card">
+    <h2>Weekly contact with next step</h2>
+    <p class="sub">Roles whose status first became Contact with next step in that Monday–Sunday week (ET). A role counts once, in the week of its earliest status event. Light segment = outbound, dark segment = inbound. Click a bar for the list.</p>
+    <div id="chWeeklyContact"></div>
+  </section>
+
   <section class="card" id="ivCard">
     <div class="toolbar" style="justify-content:space-between">
       <div><h2>Interview schedule</h2>
@@ -482,6 +488,15 @@ function modalContent(id, roles) {
     const rows = filteredInterviews(roles);
     return {title: "All interviews", kind: "ints", rows, count: plural(rows.length, "interview"), note: "Every logged interview for roles in the current filter, whatever the application's current status (one row per interview)."};
   }
+  if (id.startsWith("cns:")) {
+    const w = id.slice(4);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(w)) return null;
+    const rs = contactEntries(roles).filter(r => monday(r.contact_at) === w);
+    const end = addDays(w, 6);
+    return {title: `New contact with next step — week of ${w}`, kind: "roles", rows: rs, count: plural(rs.length, "role"),
+      extra: {k:"contact_at", h:"First reached", cls:"d"}, sortK: "contact_at", sortDir: -1,
+      note: `<b>${fmt(rs.length)}</b> roles that first reached <b>Contact with next step</b> in the week of ${esc(w)} through ${esc(end)} (ET): ${esc(splitStr(rs))}. Current status is where each role is now.`};
+  }
   return null;
 }
 /* ---------- role timeline ---------- */
@@ -534,7 +549,7 @@ function render() {
   if (state.from || state.to) parts.push(`${state.df === "added" ? "Date added" : "Date applied"} ${state.from || "…"} → ${state.to || "…"} (rows without that date are excluded)`);
   for (const [id,k,n] of [["#f_src","src","Source"],["#f_rf","rf","Role family"],["#f_wp","wp","Workplace"]]) if (state[k]) parts.push(`${n}: ${lab(id)}`);
   $("#filterSummary").innerHTML = `Showing <b>${fmt(roles.length)}</b> roles (${fmt(rows.length)} of ${fmt(DATA.apps.length)} rows)` + (parts.length ? ` · ${esc(parts.join(" · "))}` : " · no filters");
-  renderKpis(roles); renderFunnel(roles); renderDaily(roles); renderWeekly(roles); renderStatus(roles); renderInterviews(roles); renderIvSchedule(roles); renderPipeline(roles); renderQA(rows); renderSheet(); renderDefs();
+  renderKpis(roles); renderFunnel(roles); renderDaily(roles); renderWeekly(roles); renderWeeklyContact(roles); renderStatus(roles); renderInterviews(roles); renderIvSchedule(roles); renderPipeline(roles); renderQA(rows); renderSheet(); renderDefs();
   if (!$("#modal").hidden) renderModal();
 }
 function renderKpis(roles) {
@@ -627,6 +642,59 @@ function renderWeekly(roles) {
   const c = {}; roles.forEach(r => { if (r.date_applied) { const w = monday(r.date_applied); c[w] = (c[w] || 0) + 1; } });
   const items = []; for (let w = monday(span[0]); w <= span[1]; w = addDays(w, 7)) items.push({label: "Week of " + w, short: w.slice(5), v: c[w] || 0});
   barChart($("#chWeekly"), items, {quota: QUOTA * 7, color: "#3b5bdb", yLabel: "/wk"});
+}
+const etDay = ts => new Date(ts).toLocaleDateString("en-CA", {timeZone:"America/New_York"});
+function firstContactAt(role) {
+  let best = null;
+  for (const a of role.rows) for (const e of a._events) {
+    if (e.to_status !== "Contact with next step" || !e.occurred_at) continue;
+    const d = etDay(e.occurred_at);
+    if (!best || d < best) best = d;
+  }
+  return best;
+}
+function contactEntries(roles) {
+  const out = [];
+  for (const r of roles) { const d = firstContactAt(r); if (d) out.push({...r, contact_at: d}); }
+  return out;
+}
+function vStackChart(el, items, {color="#7950f2", h=220, labelEvery=1, aria=""} = {}) {
+  if (!items.length) { el.innerHTML = `<p class="muted">No data in this filter.</p>`; return; }
+  const W = 760, H = h, pl = 34, pr = 8, pt = 10, pb = 34;
+  const max = Math.max(1, ...items.map(d => d.v)) * 1.1;
+  const step = (W - pl - pr) / items.length, bw = Math.max(1.5, step * .75);
+  const y = v => pt + (H - pt - pb) * (1 - v / max);
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img"${aria ? ` aria-label="${esc(aria)}"` : ""}>`;
+  const ticks = 4; for (let i = 0; i <= ticks; i++) { const v = max * i / ticks; s += `<line x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}" stroke="#eef0f3"/><text x="${pl-4}" y="${y(v)+3}" font-size="10" text-anchor="end" fill="#98a2b3">${Math.round(v)}</text>`; }
+  items.forEach((d, i) => {
+    const x = pl + i * step + (step - bw) / 2;
+    const out = d.out || 0, inb = d.inb || 0, total = d.v || 0;
+    const tip = `${d.label}: ${total} (${out} outbound, ${inb} inbound)${d.modal ? " — click for the list" : ""}`;
+    const open = d.modal ? `<g class="clk" data-modal="${esc(d.modal)}" tabindex="0" role="button" aria-label="${esc(tip)}">` : "<g>";
+    const c = d.c || color;
+    s += `${open}<title>${esc(tip)}</title><rect x="${x}" y="${pt}" width="${bw}" height="${H - pt - pb}" fill="transparent"/>`;
+    if (out) s += `<rect class="seg-out" x="${x}" y="${y(out)}" width="${bw}" height="${Math.max(0, y(0) - y(out))}" fill="${c}"/>`;
+    if (inb) s += `<rect class="seg-in" x="${x}" y="${y(total)}" width="${bw}" height="${Math.max(0, y(out) - y(total))}" fill="${darker(c)}"/>`;
+    if (i % labelEvery === 0) s += `<text x="${x + bw/2}" y="${H - pb + 14}" font-size="10" text-anchor="middle" fill="#667085">${esc(d.short || d.label)}</text>`;
+    s += `</g>`;
+  });
+  el.innerHTML = s + `</svg>`;
+}
+function renderWeeklyContact(roles) {
+  const el = $("#chWeeklyContact"), entries = contactEntries(roles);
+  if (!entries.length) return vStackChart(el, []);
+  const days = entries.map(r => r.contact_at).sort();
+  const start = monday(days[0]), end = todayET() > days[days.length - 1] ? todayET() : days[days.length - 1];
+  const by = {};
+  for (const r of entries) { const w = monday(r.contact_at); (by[w] || (by[w] = [])).push(r); }
+  const color = COLORS["Contact with next step"];
+  const items = [];
+  for (let w = start; w <= end; w = addDays(w, 7)) {
+    const rs = by[w] || [], {out, inb} = split(rs);
+    items.push({label: "Week of " + w, short: w.slice(5), v: rs.length, out, inb, c: color, modal: rs.length ? "cns:" + w : ""});
+  }
+  vStackChart(el, items, {color, labelEvery: Math.max(1, Math.ceil(items.length / 16)), aria: "Weekly new contact with next step"});
+  el.insertAdjacentHTML("beforeend", `<div class="legend"><span><i style="background:${color}"></i>Outbound</span><span><i style="background:${darker(color)}"></i>Inbound</span><span>${fmt(entries.length)} roles reached this status (${esc(splitStr(entries))})</span></div>`);
 }
 function renderStatus(roles) {
   hbar($("#chStatus"), statusSegments(roles).map(s => { const x = split(s.roles); return {label: s.label, v: s.roles.length, inb: x.inb, c: s.c, modal: s.id, sub: [`${fmt(x.out)} out / ${fmt(x.inb)} in`, s.bar].filter(Boolean).join(" · ")}; }));
@@ -739,7 +807,7 @@ function renderModal() {
   }
   $("#mTools").hidden = false;
   const cols = mc.kind === "ints" ? INT_COLS : withExtra(mc.extra);
-  if (!modalSort.k) { modalSort.k = mc.kind === "ints" ? "interview_date" : "last_touch_date"; modalSort.dir = -1; }
+  if (!modalSort.k) { modalSort.k = mc.sortK || (mc.kind === "ints" ? "interview_date" : "last_touch_date"); modalSort.dir = mc.sortDir != null ? mc.sortDir : -1; }
   const q = modalSort.q.toLowerCase();
   const rows = mc.rows.filter(r => mc.kind === "ints" ? searchMatch(q, r._app.company, r._app.title, (r.type_tags || []).join(" "), r.outcome, r._app.status) : searchMatch(q, r.company, r.title, r.status, r.origin, r.withdrawn_by, r.withdrawn_reason, r.awaiting, r.blocked_reason));
   $("#mTitle").innerHTML = `${back}${esc(mc.title)} <span class="count">${esc(mc.count)}</span>`;
@@ -802,10 +870,11 @@ function renderDefs() {
     ["Reason (Withdrawn / Skipped lists)", "A short summary of why a Withdrawn or Skipped role was closed, derived privately from the tracker notes (latest Apply skip reason, validation note or my own note) with names, emails, links and phone numbers removed. “—” = no reason found."],
     ["Withdrawn by / Skipped by", "Set only on Withdrawn and Skipped roles: <b>Me</b> (I withdrew) or <b>Automated</b> (closed automatically, not by me)."],
     ["Awaiting", "On Contact with next step roles: whose move it is, <b>Me</b> or <b>Them</b>."],
-    ["Click-through lists", "Click any funnel bar, status bar or headline card to see the roles behind that number (sortable, searchable; Esc, × or a click outside closes it). In Current status mode a status list shows <b>only</b> roles whose current status is exactly that status; in Funnel (reached) mode it lists the roles that reached the stage. Either way the count equals the bar. Lists include an Origin column. “Interviews logged” on the headline, and the Interview schedule section, list individual interviews. The open list is saved in the link."],
+    ["Click-through lists", "Click any funnel bar, status bar, weekly contact-with-next-step bar or headline card to see the roles behind that number (sortable, searchable; Esc, × or a click outside closes it). In Current status mode a status list shows <b>only</b> roles whose current status is exactly that status; in Funnel (reached) mode it lists the roles that reached the stage. Either way the count equals the bar. Lists include an Origin column. “Interviews logged” on the headline, and the Interview schedule section, list individual interviews. The open list is saved in the link."],
     ["Funnel (reached) mode", "Toggle on the funnel chart; saved in the link. Each bar = roles that reached that stage or any later stage; clicking a bar lists exactly those roles with their current status. Stage order: Applied → Contact with next step → Non-technical screen → Interviewing → Offer → Offer Accepted. A role reaches its current active stage; Rejected / Withdrawn / Ghosted roles are placed by evidence (a logged technical, culture-fit, founder, final-round or onsite interview → Interviewing; any other logged interview → Non-technical screen; otherwise a date applied → Applied). Step % = this bar ÷ previous bar. In Current status mode (the default) each role counts once at its current status."],
     ["Origin: outbound vs. inbound", "<b>Outbound</b> = my own application or an Apply-bot submit; <b>Inbound</b> = a recruiter or company LinkedIn message or email reached me first. Per tracker row: a linked recruiter/company contact with no date applied, or whose first touch is before the date applied → Inbound; no linked contact but notes record recruiter outreach (InMail, outreach, LinkedIn message, recruiter email, pitch, Paraform submit) and no own application → Inbound; everything else (own applications, Apply submits, scraped / Target rows) → Outbound. A merged role takes the origin of its row with the earliest known touch. A LinkedIn connection request alone never counts as inbound. Gmail only shows the other side of LinkedIn threads, so a recruiter reply seen in Gmail is not taken as “they wrote first”; the contact’s first-touch date is what is compared. <b>Ambiguous</b> (marked “?” in lists): a contact whose first touch is on/after the date applied or undated → Outbound if the notes show my own application, else Inbound; or no contact and notes show both → Outbound. Derived server-side; no notes or contact details are exposed."],
     ["Apply skips", "Roles the Apply bot skipped stay at Target with a blocked_reason (e.g. Greenhouse self-apply, account needed, awaiting OK); the Target list shows the reason."],
+    ["Weekly contact with next step", "Each bar is the number of roles that first entered status Contact with next step in that Monday–Sunday week (America/New_York). A role counts once, in the week of its earliest status event (a later return to this status is ignored). Roles that have since moved on still count in the week they first reached it. Light segment = outbound, dark segment = inbound. Click a bar for the list, which includes the date first reached and the current status. The chart uses the same filters as the rest of the page."],
     ["Date filter", "Applies to date applied or date added (your choice); rows without that date are excluded while a date range is set."],
     ["Quota", "20 applications per day (140 per week), drawn as a dashed line."],
     ["Data as of", "The time this page fetched the data, in America/New_York (ET). Press Refresh to reload."]
