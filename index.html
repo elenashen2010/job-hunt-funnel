@@ -119,6 +119,21 @@ body.modal-open{overflow:hidden}
 .rolelink{color:inherit;text-decoration:underline dotted;text-underline-offset:2px}
 .mback{font-size:13px;margin-right:8px}
 .toolbar[hidden]{display:none}
+.lookup{border-color:#c5d0fa}
+.lkbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.lkbar .search{flex:1 1 320px;font-size:16px;padding:10px 12px}
+.lkres{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:12px}
+.lkres:empty{display:none}
+.lkc{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:#fbfcff}
+.lkc h3{margin:0 0 2px;font-size:17px}
+.lkc .role{font-size:14.5px;margin:0 0 8px}
+.lkc .sal{font-size:19px;font-weight:650;font-variant-numeric:tabular-nums;margin:0 0 2px}
+.lkc .sal.none{font-size:14px;font-weight:400;color:var(--mute)}
+.lkc .facts{color:var(--mute);font-size:12.5px;margin:0 0 10px}
+.lkc .links{display:flex;gap:8px;flex-wrap:wrap}
+.lkc .links a{border:1px solid var(--line);border-radius:8px;padding:5px 10px;background:#fff;text-decoration:none;font-weight:600;font-size:13px}
+.lkc .links a:hover,.lkc .links a:focus-visible{border-color:var(--acc);outline:none}
+kbd{border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:0 5px;background:#fff;font:12px ui-monospace,Menlo,Consolas,monospace}
 @media (max-width:640px){.tl li{grid-template-columns:96px 18px 1fr}}
 .pill.oc-Passed{background:#ebfbee;color:#2b8a3e}.pill.oc-Failed{background:#fff5f5;color:#c92a2a}.pill.oc-Pending{background:#fff9db;color:#e67700}.pill.oc-Unknown{background:#f1f3f5;color:#495057}
 @media (max-width:640px){.mbox{padding:12px;max-height:96vh}.modal{padding:2vh 6px}.search{min-width:0;width:100%}}
@@ -149,6 +164,13 @@ body.modal-open{overflow:hidden}
   <div id="error" class="err" hidden></div>
   <div id="loading"><span class="spinner"></span>Loading live data from Supabase…</div>
   <div id="app" hidden>
+
+  <section class="card lookup noprint" id="lookupCard">
+    <h2>Company lookup</h2>
+    <p class="sub">Call prep: type a company or title to see the role, posted salary range and links. Searches every role in the tracker, whatever the filters below. Press <kbd>/</kbd> to jump here, <kbd>Esc</kbd> to clear.</p>
+    <div class="lkbar"><input class="search" id="lk" type="search" placeholder="Company or role title…" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Look up a company"><span class="muted" id="lkCount" aria-live="polite"></span></div>
+    <div class="lkres" id="lkRes"></div>
+  </section>
 
   <section class="card noprint-keep" id="filtersCard">
     <h2>Filters</h2>
@@ -288,8 +310,8 @@ const pct = (a,b) => b ? (100*a/b).toFixed(a/b < .1 ? 1 : 0) + "%" : "—";
 const todayET = () => new Date().toLocaleDateString("en-CA", {timeZone:"America/New_York"});
 
 let DATA = null;
-const HASH_KEYS = ["df","from","to","src","rf","wp","q","m","fm","iv","aw"];
-const state = {df:"applied", from:"", to:"", src:"", rf:"", wp:"", q:"", m:"", fm:"", iv:"", aw:"", sortK:"last_touch_date", sortDir:-1};
+const HASH_KEYS = ["df","from","to","src","rf","wp","q","m","fm","iv","aw","c"];
+const state = {df:"applied", from:"", to:"", src:"", rf:"", wp:"", q:"", m:"", fm:"", iv:"", aw:"", c:"", sortK:"last_touch_date", sortDir:-1};
 let modalBack = "", modalBack_sort = null;
 const modalSort = {k:null, dir:1, q:""};
 
@@ -369,6 +391,7 @@ function prepare() {
     a._rk = normCompany(a.company) + "|" + normTitle(a.job_title);
     a._stage = stageOf(a);
   }
+  DATA.allRoles = toRoles(DATA.apps);
 }
 /* Merge rows into roles (company + normalized title). Representative row = furthest stage, then latest touch. */
 function toRoles(rows) {
@@ -423,6 +446,7 @@ function syncControls() {
   $("#f_df").value = state.df; $("#f_from").value = state.from; $("#f_to").value = state.to;
   for (const [id,k] of [["#f_src","src"],["#f_rf","rf"],["#f_wp","wp"]]) { $(id).value = state[k]; if ($(id).value !== state[k]) { state[k] = ""; $(id).value = ""; } }
   $("#q").value = state.q || "";
+  $("#lk").value = state.c || "";
 }
 const dateField = () => state.df === "added" ? "date_added" : "date_applied";
 function match(a) {
@@ -560,6 +584,7 @@ function timelineContent(id) {
 function render() {
   loadPalette();
   writeHash();
+  renderLookup();
   const rows = filteredRows(), roles = toRoles(rows);
   const tz = {timeZone:"America/New_York", year:"numeric", month:"short", day:"numeric", hour:"numeric", minute:"2-digit"};
   $("#asof").textContent = DATA.fetchedAt.toLocaleString("en-US", tz) + " ET";
@@ -846,6 +871,54 @@ function renderPipeline(roles) {
   $("#pipeWrap").innerHTML = tableHTML(PIPE_COLS, sortRows(rs, PIPE_COLS, state.sortK, state.sortDir), state.sortK, state.sortDir, "No active pipeline roles match.");
   $("#pipeCount").textContent = q ? `${rs.length} of ${total} roles shown` : `${total} roles`;
 }
+/* ---------- company lookup (call prep) ---------- */
+const LK_MAX = 8;
+const money = n => { n = +n; return "$" + (n >= 1000 ? (Math.round(n / 100) / 10).toLocaleString("en-US") + "k" : n.toLocaleString("en-US")); };
+function salaryText(lo, hi) {
+  if (lo != null && hi != null) return +lo === +hi ? money(lo) : `${money(lo)} – ${money(hi)}`;
+  if (lo != null) return `${money(lo)}+`;
+  if (hi != null) return `Up to ${money(hi)}`;
+  return "";
+}
+/* first non-empty value across a role's rows, representative row first */
+const roleVal = (r, k) => { const a = [r.rep, ...r.rows].find(x => x[k] != null && x[k] !== ""); return a ? a[k] : null; };
+function roleSalary(r) { const a = [r.rep, ...r.rows].find(x => x.salary_min != null || x.salary_max != null); return a ? salaryText(a.salary_min, a.salary_max) : ""; }
+/* name to hand to a web search: drop "(agency)" / "(client unnamed…)" notes; nothing to search for unnamed or confidential companies */
+function searchName(c) { c = (c || "").replace(/\s*\([^()]*\)/g, "").trim(); return !c || /^(unnamed|confidential)\b/i.test(c) ? "" : c; }
+function lookupMatches(q) {
+  const toks = q.toLowerCase().split(/\s+/).filter(Boolean); if (!toks.length) return [];
+  const live = s => ACTIVE.includes(s) || s === "Offer" || s === "Offer Accepted";
+  return DATA.allRoles.map(r => {
+    const c = (r.company || "").toLowerCase(), hay = c + " " + (r.title || "").toLowerCase();
+    if (!toks.every(t => hay.includes(t))) return null;
+    const rank = c.startsWith(toks[0]) ? 0 : c.split(/[^a-z0-9]+/).some(w => w.startsWith(toks[0])) ? 1 : c.includes(toks[0]) ? 2 : 3;
+    return {r, rank};
+  }).filter(Boolean).sort((x, y) => x.rank - y.rank || live(y.r.status) - live(x.r.status) || y.r.stage - x.r.stage
+    || String(y.r.last_touch_date || "").localeCompare(String(x.r.last_touch_date || "")) || String(x.r.company).localeCompare(String(y.r.company))).map(x => x.r);
+}
+function lookupCard(r) {
+  const sal = roleSalary(r), name = searchName(r.company);
+  const facts = [roleVal(r, "workplace"), roleVal(r, "location"), roleVal(r, "job_type")].filter(Boolean).map(esc).join(" · ");
+  const ext = (u, label) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${label} ↗</a>`;
+  const links = [
+    name ? ext("https://www.google.com/search?q=" + encodeURIComponent(name + " company website"), "Find website") : "",
+    /^https?:\/\//i.test(r.job_url || "") ? ext(r.job_url, "Job posting <span class=\"muted\">(" + esc(host(r.job_url)) + ")</span>") : "",
+    `<a href="#" data-modal="role:${r.rep.id}">Timeline</a>`
+  ].join("");
+  return `<article class="lkc"><h3>${esc(r.company || "—")}</h3>
+    <p class="role">${esc(r.title)} <span class="pill ${pillCls(r.status)}">${esc(r.status)}</span></p>
+    <p class="sal${sal ? "" : " none"}">${sal ? esc(sal) : "No salary range posted"}</p>
+    <p class="facts">${facts || "&nbsp;"}</p>
+    <div class="links">${links}</div></article>`;
+}
+function renderLookup() {
+  if (!DATA || !DATA.allRoles) return;
+  const q = (state.c || "").trim();
+  if (!q) { $("#lkRes").innerHTML = ""; $("#lkCount").textContent = ""; return; }
+  const rs = lookupMatches(q);
+  $("#lkRes").innerHTML = rs.slice(0, LK_MAX).map(lookupCard).join("");
+  $("#lkCount").textContent = !rs.length ? "No company or title matches." : rs.length > LK_MAX ? `Showing ${LK_MAX} of ${fmt(rs.length)} matches — keep typing to narrow` : plural(rs.length, "match").replace(/matchs$/, "matches");
+}
 /* ---------- modal ---------- */
 let lastFocus = null;
 function openModal(id) {
@@ -941,6 +1014,7 @@ function renderDefs() {
     ["Date filter", "Applies to date applied or date added (your choice); rows without that date are excluded while a date range is set."],
     ["Chart date range", "Time-axis charts (daily applications, weekly applications, weekly contact with next step) do not extend before 1 September 2026, or before the Monday of that week for weekly charts, because the job hunt starts in September. The bound is a single start-date constant near the top of this page’s script. Filters can narrow the range further; they cannot stretch it earlier."],
     ["Quota", "The daily applications goal is a dated schedule: <b>10/day</b> from 1 September 2026, then <b>20/day</b> from 28 October 2026 (the day Elena raised it; effective that day). The dashed line on the daily chart steps on the change date. The weekly goal is the sum of that week’s daily goals over the seven Monday–Sunday calendar days, so the week of 26 October (which straddles the change) is 10+10+20+20+20+20+20 = 120. “Met quota” coloring uses the goal in effect on that day."],
+    ["Company lookup", "The search box at the top of the page finds any role by company or title, ignoring the page filters, and lists live roles first. Each card shows the role title, current status, the posted salary range when the tracker has one, workplace and location, a web search for the company’s site, the job posting when one is on file, and the role’s timeline. Recruiter-sourced roles often have no posting link or salary range. Press / to jump to the box; the search is saved in the link."],
     ["Data as of", "The time this page fetched the data, in America/New_York (ET). Press Refresh to reload."]
   ];
   $("#defs").innerHTML = d.map(([t, x]) => `<dt>${esc(t)}</dt><dd>${x}</dd>`).join("");
@@ -952,6 +1026,8 @@ function bind() {
   on("#f_df","df"); on("#f_from","from"); on("#f_to","to"); on("#f_src","src"); on("#f_rf","rf"); on("#f_wp","wp");
   $("#f_reset").addEventListener("click", () => { Object.assign(state, {df:"applied", from:"", to:"", src:"", rf:"", wp:"", q:""}); syncControls(); render(); });
   $("#q").addEventListener("input", e => { state.q = e.target.value; writeHash(); renderPipeline(filteredRoles()); });
+  $("#lk").addEventListener("input", e => { state.c = e.target.value; writeHash(); renderLookup(); });
+  $("#lk").addEventListener("keydown", e => { if (e.key === "Escape" && state.c) { e.preventDefault(); e.stopPropagation(); state.c = ""; e.target.value = ""; writeHash(); renderLookup(); } });
   $("#pipeWrap").addEventListener("click", e => { const th = e.target.closest("th.sort"); if (!th) return; const k = th.dataset.k; state.sortDir = state.sortK === k ? -state.sortDir : defaultDir(k); state.sortK = k; renderPipeline(filteredRoles()); });
   // open modal from any [data-modal]
   document.addEventListener("click", e => {
@@ -963,6 +1039,7 @@ function bind() {
   document.querySelectorAll("#ivCard [data-iv]").forEach(b => b.addEventListener("click", () => { state.iv = b.dataset.iv; writeHash(); renderIvSchedule(filteredRoles()); }));
   document.addEventListener("keydown", e => {
     if (e.key === "Escape" && !$("#modal").hidden) { closeModal(); return; }
+    if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && $("#modal").hidden && !(e.target.matches && e.target.matches("input,select,textarea"))) { e.preventDefault(); $("#lk").focus(); $("#lk").select(); $("#lookupCard").scrollIntoView({block: "start"}); return; }
     if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("g.clk")) { e.preventDefault(); openModal(e.target.dataset.modal); }
   });
   $("#mClose").addEventListener("click", closeModal);
